@@ -9,9 +9,8 @@ import {
   parseISO,
 } from 'date-fns'
 
-// Fixed "now" so the dashboard is reproducible against the mock data.
-// In production this becomes `new Date()`.
-export const TODAY = new Date('2026-06-02T09:00:00')
+// "עכשיו" אמיתי — הדשבורד עובד מול הזמן הנוכחי בפועל.
+export const TODAY = new Date()
 
 // השבוע בישראל מתחיל ביום ראשון
 const WEEK_OPTS = { weekStartsOn: 0 as const }
