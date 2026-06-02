@@ -46,20 +46,32 @@ export function thisMonthRange(ref: Date = TODAY) {
   return { start: startOfMonth(ref), end: endOfMonth(ref) }
 }
 
+// פירוק ISO בטוח — מחזיר null אם התאריך חסר/לא תקין.
+// לידים אמיתיים מ-crm_leads עלולים להגיע ללא event_date, ואסור שזה יפיל את העמוד.
+function safeParse(isoDate: string | null | undefined): Date | null {
+  if (!isoDate) return null
+  const d = parseISO(isoDate)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 export function inRange(isoDate: string, range: { start: Date; end: Date }) {
-  return isWithinInterval(parseISO(isoDate), range)
+  const d = safeParse(isoDate)
+  return d ? isWithinInterval(d, range) : false
 }
 
 export function daysSince(isoDate: string, ref: Date = TODAY) {
-  return differenceInCalendarDays(ref, parseISO(isoDate))
+  const d = safeParse(isoDate)
+  return d ? differenceInCalendarDays(ref, d) : NaN
 }
 
 export function daysUntil(isoDate: string, ref: Date = TODAY) {
-  return differenceInCalendarDays(parseISO(isoDate), ref)
+  const d = safeParse(isoDate)
+  return d ? differenceInCalendarDays(d, ref) : NaN
 }
 
 export function hoursSince(isoDate: string, ref: Date = TODAY) {
-  return (ref.getTime() - parseISO(isoDate).getTime()) / (1000 * 60 * 60)
+  const d = safeParse(isoDate)
+  return d ? (ref.getTime() - d.getTime()) / (1000 * 60 * 60) : NaN
 }
 
 const HE_DATE = new Intl.DateTimeFormat('he-IL', {
@@ -69,5 +81,6 @@ const HE_DATE = new Intl.DateTimeFormat('he-IL', {
 })
 
 export function formatDate(isoDate: string) {
-  return HE_DATE.format(parseISO(isoDate))
+  const d = safeParse(isoDate)
+  return d ? HE_DATE.format(d) : '—'
 }
