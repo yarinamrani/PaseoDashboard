@@ -217,6 +217,7 @@ export async function createEvent(input: EventInput): Promise<void> {
         relevance: 'relevant',
         assigned_to: input.owner || null,
         price_quoted: input.value ?? null,
+        raw_body: `נוצר ידנית מהדשבורד · ${input.customer}`,
         received_at: new Date().toISOString(),
       }),
   )
