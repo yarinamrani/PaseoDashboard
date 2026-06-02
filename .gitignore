@@ -3,6 +3,9 @@ dist
 dist-ssr
 *.local
 *.tsbuildinfo
+
+# generated screenshots (delivered as artifacts, not source)
+shots/
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
