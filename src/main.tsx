@@ -37,7 +37,10 @@ const router = createBrowserRouter([
       { path: 'suppliers', element: <Suppliers /> },
     ],
   },
-])
+], {
+  // תומך גם בהרצה מקומית (base '/') וגם בפרסום ל-GitHub Pages תחת תת-נתיב
+  basename: import.meta.env.BASE_URL.replace(/\/$/, '') || '/',
+})
 
 function Spinner() {
   return (
