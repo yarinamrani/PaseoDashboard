@@ -1,8 +1,9 @@
 import type { PaseoData, EventStatus } from '../types'
 import {
   TODAY,
-  thisWeekRange,
   lastWeekRange,
+  thisWeekToDateRange,
+  lastWeekToDateRange,
   thisMonthRange,
   inRange,
   daysSince,
@@ -18,14 +19,23 @@ const OPEN_LEAD_STATUSES: EventStatus[] = [
 ]
 
 // --- מכירות ---
-export function weekRevenue(d: PaseoData) {
-  const r = thisWeekRange()
+function sumRevenue(d: PaseoData, r: { start: Date; end: Date }) {
   return d.sales.filter((s) => inRange(s.date, r)).reduce((a, s) => a + s.revenue, 0)
 }
 
+// "מחזור השבוע" = שבוע עד היום (מתחילת השבוע ועד עכשיו)
+export function weekRevenue(d: PaseoData) {
+  return sumRevenue(d, thisWeekToDateRange())
+}
+
+// אותה תקופה בשבוע שעבר — להשוואה הוגנת (week-over-week)
+export function lastWeekToDateRevenue(d: PaseoData) {
+  return sumRevenue(d, lastWeekToDateRange())
+}
+
+// שבוע קודם מלא (לשימוש בסיכום ה-KPI השבועי של יום ראשון)
 export function lastWeekRevenue(d: PaseoData) {
-  const r = lastWeekRange()
-  return d.sales.filter((s) => inRange(s.date, r)).reduce((a, s) => a + s.revenue, 0)
+  return sumRevenue(d, lastWeekRange())
 }
 
 export function monthRevenue(d: PaseoData) {
@@ -34,7 +44,7 @@ export function monthRevenue(d: PaseoData) {
 }
 
 export function weekDiners(d: PaseoData) {
-  const r = thisWeekRange()
+  const r = thisWeekToDateRange()
   return d.sales.filter((s) => inRange(s.date, r)).reduce((a, s) => a + s.diners, 0)
 }
 

@@ -3,10 +3,10 @@ import { KpiCard, type Tone } from '../components/KpiCard'
 import { PageHeader } from '../components/PageHeader'
 import { AlertsPanel } from '../components/AlertsPanel'
 import { Widget } from '../components/Widget'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import {
   weekRevenue,
-  lastWeekRevenue,
+  lastWeekToDateRevenue,
   upcomingEvents,
   openLeads,
   googleRating,
@@ -17,9 +17,9 @@ import { runAutomations } from '../lib/automations'
 import { shekel, pct } from '../lib/format'
 
 export function OwnerControl() {
-  const d = paseoData
+  const d = usePaseo()
   const wRev = weekRevenue(d)
-  const lwRev = lastWeekRevenue(d)
+  const lwRev = lastWeekToDateRevenue(d)
   const wowDelta = lwRev ? ((wRev - lwRev) / lwRev) * 100 : 0
   const upcoming = upcomingEvents(d, 30)
   const leads = openLeads(d)
@@ -46,7 +46,7 @@ export function OwnerControl() {
           icon={Banknote}
           tone="neutral"
           to="/sales"
-          sub="מול שבוע שעבר"
+          sub="עד היום, מול תקופה מקבילה"
           trend={pct(wowDelta)}
           trendTone={wowDelta >= 0 ? 'good' : 'bad'}
         />

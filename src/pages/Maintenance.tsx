@@ -2,7 +2,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import { openIssues, staleIssues } from '../lib/metrics'
 import { formatDate, daysSince } from '../lib/dates'
 import { shekel } from '../lib/format'
@@ -27,7 +27,7 @@ const columns: Column<MaintenanceIssue>[] = [
 ]
 
 export function Maintenance() {
-  const d = paseoData
+  const d = usePaseo()
   const open = openIssues(d)
   const stale = staleIssues(d)
   const totalCost = d.maintenance.reduce((a, m) => a + m.cost, 0)

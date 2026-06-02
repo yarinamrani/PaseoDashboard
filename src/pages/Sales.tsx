@@ -1,7 +1,7 @@
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import { weekRevenue, monthRevenue, weekAvgPerDiner } from '../lib/metrics'
 import { shekel, num } from '../lib/format'
 import { formatDate, daysSince } from '../lib/dates'
@@ -17,7 +17,7 @@ const columns: Column<SalesRecord>[] = [
 ]
 
 export function Sales() {
-  const d = paseoData
+  const d = usePaseo()
   // 30 הימים האחרונים, מהחדש לישן
   const rows = d.sales
     .filter((s) => daysSince(s.date) <= 30)

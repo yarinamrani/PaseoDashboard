@@ -11,11 +11,11 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import {
   monthRevenue,
   weekRevenue,
-  lastWeekRevenue,
+  lastWeekToDateRevenue,
   dailyRevenueSeries,
   leadsByStatus,
   openLeads,
@@ -52,10 +52,10 @@ function ChartTooltip({ active, payload, label }: any) {
 }
 
 export function CeoDashboard() {
-  const d = paseoData
+  const d = usePaseo()
   const mRev = monthRevenue(d)
   const wRev = weekRevenue(d)
-  const lwRev = lastWeekRevenue(d)
+  const lwRev = lastWeekToDateRevenue(d)
   const wow = lwRev ? ((wRev - lwRev) / lwRev) * 100 : 0
   const series = dailyRevenueSeries(d, 30)
   const statusCounts = leadsByStatus(d)
@@ -116,13 +116,16 @@ export function CeoDashboard() {
 
         <Widget title="מחזור שבועי">
           <div className="text-3xl font-black text-paseo-text">{shekel(wRev)}</div>
+          <div className="text-[11px] text-paseo-muted">שבוע עד היום</div>
           <div className="mt-2 text-sm">
             <span className={wow >= 0 ? 'text-paseo-green font-bold' : 'text-paseo-red font-bold'}>
               {pct(wow)}
             </span>{' '}
-            <span className="text-paseo-muted">מול שבוע שעבר</span>
+            <span className="text-paseo-muted">מול תקופה מקבילה</span>
           </div>
-          <div className="text-xs text-paseo-muted mt-1">שבוע שעבר: {shekel(lwRev)}</div>
+          <div className="text-xs text-paseo-muted mt-1">
+            תקופה מקבילה שבוע שעבר: {shekel(lwRev)}
+          </div>
         </Widget>
 
         {/* 3: לידים פתוחים */}

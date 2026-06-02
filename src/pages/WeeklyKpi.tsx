@@ -1,6 +1,6 @@
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import {
   lastWeekRevenue,
   weekAvgPerDiner,
@@ -13,7 +13,7 @@ import { lastWeekRange, inRange } from '../lib/dates'
 import { shekel, num } from '../lib/format'
 
 export function WeeklyKpi() {
-  const d = paseoData
+  const d = usePaseo()
   const lwRev = lastWeekRevenue(d)
   const avgDiner = weekAvgPerDiner(d)
   const statusCounts = leadsByStatus(d)

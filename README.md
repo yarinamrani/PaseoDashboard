@@ -3,8 +3,8 @@
 דשבורד ניהול שוטף למסעדה/אירועים "פסאו". מסך אחד שנפתח כל בוקר ונותן את כל
 התמונה תוך 5 דקות: מכירות, אירועים, לידים, ביקורות, תחזוקה וכוח אדם.
 
-> **MVP** — עובד על נתוני דמה (Mock), בנוי לחיבור מקורות נתונים אמיתיים.
-> ראו [`PLAN.md`](./PLAN.md) לתוכנית המלאה והצעדים הבאים.
+> **MVP** — מחובר ל-Supabase כמקור נתונים, עם נפילה אוטומטית לנתוני דמה (Mock)
+> אם אין חיבור. ראו [`PLAN.md`](./PLAN.md) לתוכנית המלאה והצעדים הבאים.
 
 ## הרצה
 
@@ -12,6 +12,31 @@
 npm install
 npm run dev       # http://localhost:5173
 ```
+
+## מקור נתונים (Supabase)
+
+הדשבורד טוען נתונים מ-Supabase דרך שכבת גישה ב-`src/data/` ומציג בכותרת אינדיקציה
+("מחובר ל-Supabase" / "נתוני דמה"). אם ה-env חסר, או שאין רשת, או שהחיבור איטי
+(timeout של 6 שניות) — האפליקציה נופלת חזרה ל-`src/data/mockData.ts` כך שהיא תמיד עובדת.
+
+הגדרת חיבור — העתיקו את `.env.example` ל-`.env` ומלאו:
+
+```
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...   # publishable key (ציבורי, מוגן ע"י RLS לקריאה בלבד)
+```
+
+הסכמה (7 טבלאות התואמות לקבוצות הלוח) הוקמה במיגרציה `paseo_dashboard_schema`.
+זריעת נתוני הדמה ל-DB:
+
+```bash
+npx tsx scripts/exportSeed.ts   # מייצר scripts/seed.sql מתוך mockData
+# ואז מריצים את scripts/seed.sql מול הפרויקט
+```
+
+> הערה: בתוך סביבת ההרצה המנוהלת (web) ייתכן ש-`supabase.co` חסום ע"י מדיניות
+> הרשת (allowlist), ואז יוצג "נתוני דמה". במכונה מקומית/דיפלוי שבהם היעד פתוח —
+> יוצג "מחובר ל-Supabase" עם הנתונים החיים.
 
 בנייה לפרודקשן:
 
@@ -30,7 +55,7 @@ npm run preview
 
 ## סטאק
 
-React 18 · TypeScript · Vite · Tailwind CSS · Recharts · React Router · date-fns
+React 18 · TypeScript · Vite · Tailwind CSS · Recharts · React Router · date-fns · Supabase
 
-כל המספרים נגזרים מהנתונים הגולמיים ב-`src/data/mockData.ts`. החלפת הקובץ
-במקור נתונים אמיתי מעדכנת את כל הדשבורד אוטומטית.
+כל המספרים נגזרים מהנתונים הגולמיים (Supabase או Mock) דרך `src/lib/metrics.ts`
+ו-`src/lib/automations.ts`, כך שהוספת/עדכון נתונים מתעדכנת בכל הדשבורד אוטומטית.

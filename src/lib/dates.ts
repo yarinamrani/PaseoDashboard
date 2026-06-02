@@ -31,6 +31,17 @@ export function lastWeekRange(ref: Date = TODAY) {
   }
 }
 
+// "שבוע עד היום": מתחילת השבוע ועד עכשיו (ולא שבוע מלא)
+export function thisWeekToDateRange(ref: Date = TODAY) {
+  return { start: startOfWeek(ref, WEEK_OPTS), end: ref }
+}
+
+// אותה תקופה בשבוע שעבר (לאותו מספר ימים) — להשוואה הוגנת
+export function lastWeekToDateRange(ref: Date = TODAY) {
+  const lw = subWeeks(ref, 1)
+  return { start: startOfWeek(lw, WEEK_OPTS), end: lw }
+}
+
 export function thisMonthRange(ref: Date = TODAY) {
   return { start: startOfMonth(ref), end: endOfMonth(ref) }
 }

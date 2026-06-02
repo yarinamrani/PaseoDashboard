@@ -1,7 +1,7 @@
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import { googleRating, reviewsThisMonth, GOOGLE_TARGET } from '../lib/metrics'
 import { formatDate } from '../lib/dates'
 import type { Review } from '../types'
@@ -46,7 +46,7 @@ const columns: Column<Review>[] = [
 ]
 
 export function Reviews() {
-  const d = paseoData
+  const d = usePaseo()
   const rating = googleRating(d)
   const monthReviews = reviewsThisMonth(d)
   const rows = [...d.reviews].sort((a, b) => b.date.localeCompare(a.date))

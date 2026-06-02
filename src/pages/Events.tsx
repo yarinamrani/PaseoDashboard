@@ -3,7 +3,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Widget } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import { EVENT_STATUSES, type EventLead, type EventStatus } from '../types'
 import { formatDate, daysUntil } from '../lib/dates'
 import { num, shekel } from '../lib/format'
@@ -22,7 +22,7 @@ const columns: Column<EventLead>[] = [
 type Filter = EventStatus | 'הכל'
 
 export function Events() {
-  const d = paseoData
+  const d = usePaseo()
   const [filter, setFilter] = useState<Filter>('הכל')
 
   const rows = d.events

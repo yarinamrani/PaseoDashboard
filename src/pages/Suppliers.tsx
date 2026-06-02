@@ -1,7 +1,7 @@
 import { PageHeader } from '../components/PageHeader'
 import { Widget } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import type { Supplier } from '../types'
 
 const columns: Column<Supplier>[] = [
@@ -13,7 +13,7 @@ const columns: Column<Supplier>[] = [
 ]
 
 export function Suppliers() {
-  const d = paseoData
+  const d = usePaseo()
   const rows = [...d.suppliers].sort((a, b) => a.supplier.localeCompare(b.supplier, 'he'))
 
   return (

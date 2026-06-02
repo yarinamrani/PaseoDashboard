@@ -2,7 +2,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import { formatDate, daysSince } from '../lib/dates'
 import type { Employee } from '../types'
 
@@ -22,7 +22,7 @@ const columns: Column<Employee>[] = [
 ]
 
 export function Employees() {
-  const d = paseoData
+  const d = usePaseo()
   const active = d.employees.filter((e) => e.status === 'פעיל').length
   const onLeave = d.employees.filter((e) => e.status === 'בחופשה').length
   const rows = [...d.employees].sort((a, b) => a.status.localeCompare(b.status))

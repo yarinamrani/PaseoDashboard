@@ -2,11 +2,11 @@ import { Zap, ArrowLeft } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Widget } from '../components/Widget'
 import { AlertsPanel } from '../components/AlertsPanel'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import { runAutomations, AUTOMATION_RULES } from '../lib/automations'
 
 export function Automations() {
-  const d = paseoData
+  const d = usePaseo()
   const alerts = runAutomations(d)
   const counts = {
     high: alerts.filter((a) => a.severity === 'high').length,

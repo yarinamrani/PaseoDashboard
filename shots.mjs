@@ -40,9 +40,10 @@ const page = await browser.newPage()
 await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 })
 
 for (const [name, path] of pages) {
-  await page.goto(BASE + path, { waitUntil: 'networkidle0' })
-  // give recharts/fonts a beat to settle
-  await new Promise((r) => setTimeout(r, 900))
+  await page.goto(BASE + path, { waitUntil: 'domcontentloaded' })
+  // wait past the Supabase load timeout (6s) so the data layer settles,
+  // then give recharts/fonts a beat
+  await new Promise((r) => setTimeout(r, 7500))
   await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true })
   console.log('captured', name)
 }

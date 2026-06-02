@@ -2,7 +2,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
-import { paseoData } from '../data/mockData'
+import { usePaseo } from '../data/DataContext'
 import { marketingStats } from '../lib/metrics'
 import { formatDate } from '../lib/dates'
 import { shekel, num } from '../lib/format'
@@ -31,7 +31,7 @@ const columns: Column<MarketingTask>[] = [
 ]
 
 export function Marketing() {
-  const d = paseoData
+  const d = usePaseo()
   const mkt = marketingStats(d)
   const rows = [...d.marketing].sort((a, b) => b.publishDate.localeCompare(a.publishDate))
 
