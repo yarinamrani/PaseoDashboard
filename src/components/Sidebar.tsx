@@ -12,6 +12,7 @@ import {
   Zap,
   CalendarCheck,
 } from 'lucide-react'
+import { useDataSource } from '../data/DataContext'
 
 interface NavItem {
   to: string
@@ -45,6 +46,7 @@ const sections: { title: string; items: NavItem[] }[] = [
 ]
 
 export function Sidebar({ alertCount }: { alertCount: number }) {
+  const { source } = useDataSource()
   return (
     <aside className="w-60 shrink-0 bg-paseo-surface border-l border-paseo-border flex flex-col">
       <div className="px-5 py-5 border-b border-paseo-border">
@@ -96,7 +98,7 @@ export function Sidebar({ alertCount }: { alertCount: number }) {
       </nav>
 
       <div className="px-5 py-3 border-t border-paseo-border text-[11px] text-paseo-muted">
-        נתוני דמה · MVP
+        {source === 'supabase' ? 'מחובר ל-PaseoCRM' : 'נתוני דמה'} · MVP
       </div>
     </aside>
   )
