@@ -30,8 +30,8 @@ jobs:
 
       - run: npm ci
 
-      # base path חייב להתאים לשם הריפו: https://<user>.github.io/paseodashboard/
-      - run: npx vite build --base=/paseodashboard/
+      # base path חייב להתאים בדיוק לשם הריפו (רגיש לאותיות): https://<user>.github.io/PaseoDashboard/
+      - run: npx vite build --base=/PaseoDashboard/
 
       # SPA fallback: כל נתיב שלא נמצא יחזיר את index.html כדי שה-router יטפל בו
       - run: cp dist/index.html dist/404.html
