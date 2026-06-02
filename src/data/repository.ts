@@ -110,8 +110,8 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ])
 }
 
-export async function loadPaseoData(): Promise<LoadResult> {
-  if (!isSupabaseConfigured || !supabase) {
+export async function loadPaseoData(demo = false): Promise<LoadResult> {
+  if (demo || !isSupabaseConfigured || !supabase) {
     return { data: paseoData, source: 'mock' }
   }
 

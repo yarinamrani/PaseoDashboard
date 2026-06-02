@@ -1,7 +1,8 @@
 import { Outlet } from 'react-router-dom'
-import { Database, FlaskConical } from 'lucide-react'
+import { Database, FlaskConical, LogOut } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { usePaseo, useDataSource } from '../data/DataContext'
+import { useAuth } from '../data/AuthContext'
 import { runAutomations } from '../lib/automations'
 import { TODAY } from '../lib/dates'
 
@@ -32,6 +33,7 @@ function SourceBadge() {
 
 export function Layout() {
   const d = usePaseo()
+  const { session, signOut } = useAuth()
   const alertCount = runAutomations(d).filter((a) => a.severity === 'high').length
 
   return (
@@ -43,9 +45,21 @@ export function Layout() {
             <div className="text-sm text-paseo-muted">{longDate} · 09:00</div>
             <SourceBadge />
           </div>
-          <div className="text-sm">
-            <span className="text-paseo-muted">בוקר טוב,</span>{' '}
-            <span className="font-bold">בעלי פסאו</span>
+          <div className="flex items-center gap-3 text-sm">
+            <div>
+              <span className="text-paseo-muted">בוקר טוב,</span>{' '}
+              <span className="font-bold">בעלי פסאו</span>
+            </div>
+            {session && (
+              <button
+                onClick={() => signOut()}
+                title={`מחובר כ-${session.user.email} · התנתקות`}
+                className="flex items-center gap-1 rounded-lg border border-paseo-border px-2 py-1 text-xs text-paseo-muted hover:text-paseo-text hover:bg-white/5 transition-colors"
+              >
+                <LogOut size={12} />
+                התנתקות
+              </button>
+            )}
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-6">

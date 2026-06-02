@@ -20,7 +20,7 @@ interface DataContextValue {
 
 const DataContext = createContext<DataContextValue | null>(null)
 
-export function DataProvider({ children }: { children: ReactNode }) {
+export function DataProvider({ children, demo = false }: { children: ReactNode; demo?: boolean }) {
   const [state, setState] = useState<Omit<DataContextValue, 'refresh'>>({
     data: fallback,
     source: 'mock',
@@ -28,20 +28,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
   })
 
   const refresh = useCallback(async () => {
-    const res = await loadPaseoData()
+    const res = await loadPaseoData(demo)
     setState({ data: res.data, source: res.source, loading: false, error: res.error })
-  }, [])
+  }, [demo])
 
   useEffect(() => {
     let alive = true
-    loadPaseoData().then((res) => {
+    loadPaseoData(demo).then((res) => {
       if (!alive) return
       setState({ data: res.data, source: res.source, loading: false, error: res.error })
     })
     return () => {
       alive = false
     }
-  }, [])
+  }, [demo])
 
   if (state.loading) {
     return (

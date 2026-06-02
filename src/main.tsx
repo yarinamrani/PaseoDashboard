@@ -1,8 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import './index.css'
+import { isSupabaseConfigured } from './data/supabaseClient'
+import { AuthProvider, useAuth } from './data/AuthContext'
 import { DataProvider } from './data/DataContext'
+import { Login } from './pages/Login'
 import { Layout } from './components/Layout'
 import { OwnerControl } from './pages/OwnerControl'
 import { CeoDashboard } from './pages/CeoDashboard'
@@ -36,10 +39,41 @@ const router = createBrowserRouter([
   },
 ])
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <DataProvider>
+function Spinner() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-paseo-bg text-paseo-muted">
+      <div className="h-8 w-8 rounded-full border-2 border-paseo-gold border-t-transparent animate-spin" />
+    </div>
+  )
+}
+
+// שער כניסה: ללא Supabase מוגדר -> ישר לדשבורד (דמה). עם Supabase -> דורש התחברות,
+// עם אפשרות "מצב דמה" שעוקף את ההתחברות ומשתמש בנתוני דמה בלבד.
+function Gate() {
+  const { session, loading } = useAuth()
+  const [demo, setDemo] = useState(false)
+
+  if (!isSupabaseConfigured) {
+    return (
+      <DataProvider>
+        <RouterProvider router={router} />
+      </DataProvider>
+    )
+  }
+  if (loading) return <Spinner />
+  if (!session && !demo) return <Login onDemo={() => setDemo(true)} />
+
+  return (
+    <DataProvider demo={demo}>
       <RouterProvider router={router} />
     </DataProvider>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
   </React.StrictMode>,
 )
