@@ -1,7 +1,11 @@
+import { useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
+import { AddButton } from '../components/AddButton'
+import { Modal } from '../components/Modal'
+import { MaintenanceForm } from '../components/forms/MaintenanceForm'
 import { usePaseo } from '../data/DataContext'
 import { openIssues, staleIssues } from '../lib/metrics'
 import { formatDate, daysSince } from '../lib/dates'
@@ -28,6 +32,7 @@ const columns: Column<MaintenanceIssue>[] = [
 
 export function Maintenance() {
   const d = usePaseo()
+  const [adding, setAdding] = useState(false)
   const open = openIssues(d)
   const stale = staleIssues(d)
   const totalCost = d.maintenance.reduce((a, m) => a + m.cost, 0)
@@ -39,7 +44,15 @@ export function Maintenance() {
 
   return (
     <div>
-      <PageHeader title="תחזוקה" subtitle="כל תקלה — מטבח, בר, שירותים, גג, חשמל, תאורה, ריהוט" />
+      <PageHeader
+        title="תחזוקה"
+        subtitle="כל תקלה — מטבח, בר, שירותים, גג, חשמל, תאורה, ריהוט"
+        action={<AddButton label="תקלה חדשה" onClick={() => setAdding(true)} />}
+      />
+
+      <Modal open={adding} title="תקלה חדשה" onClose={() => setAdding(false)}>
+        <MaintenanceForm onClose={() => setAdding(false)} />
+      </Modal>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Widget title="תקלות פתוחות">

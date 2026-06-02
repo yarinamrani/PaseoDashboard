@@ -1,6 +1,10 @@
+import { useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
+import { AddButton } from '../components/AddButton'
+import { Modal } from '../components/Modal'
+import { SalesForm } from '../components/forms/SalesForm'
 import { usePaseo } from '../data/DataContext'
 import { weekRevenue, monthRevenue, weekAvgPerDiner } from '../lib/metrics'
 import { shekel, num } from '../lib/format'
@@ -18,6 +22,7 @@ const columns: Column<SalesRecord>[] = [
 
 export function Sales() {
   const d = usePaseo()
+  const [adding, setAdding] = useState(false)
   // 30 הימים האחרונים, מהחדש לישן
   const rows = d.sales
     .filter((s) => daysSince(s.date) <= 30)
@@ -25,7 +30,15 @@ export function Sales() {
 
   return (
     <div>
-      <PageHeader title="מכירות" subtitle="סיכום מכירות יומי · שבועי · חודשי" />
+      <PageHeader
+        title="מכירות"
+        subtitle="סיכום מכירות יומי · שבועי · חודשי"
+        action={<AddButton label="סיכום יומי" onClick={() => setAdding(true)} />}
+      />
+
+      <Modal open={adding} title="סיכום מכירות יומי" onClose={() => setAdding(false)}>
+        <SalesForm onClose={() => setAdding(false)} />
+      </Modal>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <Widget title="מחזור חודשי">

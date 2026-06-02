@@ -19,6 +19,23 @@ export interface LoadResult {
   error?: string
 }
 
+/** נזרק כשמנסים לשמור ואין חיבור פעיל ל-Supabase (מצב דמה). */
+export class NoConnectionError extends Error {
+  constructor() {
+    super('אין חיבור פעיל ל-Supabase — לא ניתן לשמור נתונים במצב דמה')
+    this.name = 'NoConnectionError'
+  }
+}
+
+export const canWrite = isSupabaseConfigured
+
+function client() {
+  if (!supabase) throw new NoConnectionError()
+  return supabase
+}
+
+const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}`
+
 // --- ממירים שורות snake_case מ-Supabase לטיפוסי הדומיין (camelCase) ---
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const mapSales = (r: any): SalesRecord => ({
@@ -160,4 +177,98 @@ export async function loadPaseoData(): Promise<LoadResult> {
       error: e instanceof Error ? e.message : String(e),
     }
   }
+}
+
+// ============================================================================
+// כתיבה — הוספה/עריכה של רשומות. דורש חיבור פעיל ל-Supabase.
+// כל פונקציה זורקת NoConnectionError במצב דמה.
+// ============================================================================
+
+async function run<T extends { error: unknown }>(q: PromiseLike<T>): Promise<void> {
+  const { error } = await q
+  if (error) throw error instanceof Error ? error : new Error(String(error))
+}
+
+// --- מכירות: הוספת סיכום יומי ---
+export type SalesInput = Omit<SalesRecord, 'id'>
+export async function createSales(input: SalesInput): Promise<void> {
+  await run(
+    client()
+      .from('sales')
+      .insert({
+        id: newId('s'),
+        date: input.date,
+        revenue: input.revenue,
+        diners: input.diners,
+        avg_per_diner: input.avgPerDiner,
+        avg_table: input.avgTable,
+        notes: input.notes ?? null,
+      }),
+  )
+}
+
+// --- אירועים / לידים ---
+export type EventInput = Omit<EventLead, 'id' | 'createdAt'>
+export async function createEvent(input: EventInput): Promise<void> {
+  await run(
+    client()
+      .from('events')
+      .insert({
+        id: newId('e'),
+        customer: input.customer,
+        phone: input.phone,
+        event_type: input.eventType,
+        guests: input.guests,
+        date: input.date,
+        status: input.status,
+        owner: input.owner,
+        created_at: new Date().toISOString(),
+        value: input.value ?? null,
+      }),
+  )
+}
+
+export async function updateEvent(id: string, patch: Partial<EventInput>): Promise<void> {
+  const row: Record<string, unknown> = {}
+  if (patch.customer !== undefined) row.customer = patch.customer
+  if (patch.phone !== undefined) row.phone = patch.phone
+  if (patch.eventType !== undefined) row.event_type = patch.eventType
+  if (patch.guests !== undefined) row.guests = patch.guests
+  if (patch.date !== undefined) row.date = patch.date
+  if (patch.status !== undefined) row.status = patch.status
+  if (patch.owner !== undefined) row.owner = patch.owner
+  if (patch.value !== undefined) row.value = patch.value
+  await run(client().from('events').update(row).eq('id', id))
+}
+
+// --- תחזוקה / תקלות ---
+export type MaintenanceInput = Omit<MaintenanceIssue, 'id'>
+export async function createMaintenance(input: MaintenanceInput): Promise<void> {
+  await run(
+    client()
+      .from('maintenance')
+      .insert({
+        id: newId('t'),
+        issue: input.issue,
+        area: input.area,
+        opened_date: input.openedDate,
+        owner: input.owner,
+        cost: input.cost,
+        status: input.status,
+      }),
+  )
+}
+
+export async function updateMaintenance(
+  id: string,
+  patch: Partial<MaintenanceInput>,
+): Promise<void> {
+  const row: Record<string, unknown> = {}
+  if (patch.issue !== undefined) row.issue = patch.issue
+  if (patch.area !== undefined) row.area = patch.area
+  if (patch.openedDate !== undefined) row.opened_date = patch.openedDate
+  if (patch.owner !== undefined) row.owner = patch.owner
+  if (patch.cost !== undefined) row.cost = patch.cost
+  if (patch.status !== undefined) row.status = patch.status
+  await run(client().from('maintenance').update(row).eq('id', id))
 }

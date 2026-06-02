@@ -3,6 +3,9 @@ import { PageHeader } from '../components/PageHeader'
 import { Widget } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
+import { AddButton } from '../components/AddButton'
+import { Modal } from '../components/Modal'
+import { LeadForm } from '../components/forms/LeadForm'
 import { usePaseo } from '../data/DataContext'
 import { EVENT_STATUSES, type EventLead, type EventStatus } from '../types'
 import { formatDate, daysUntil } from '../lib/dates'
@@ -24,6 +27,7 @@ type Filter = EventStatus | 'הכל'
 export function Events() {
   const d = usePaseo()
   const [filter, setFilter] = useState<Filter>('הכל')
+  const [adding, setAdding] = useState(false)
 
   const rows = d.events
     .filter((e) => filter === 'הכל' || e.status === filter)
@@ -40,7 +44,12 @@ export function Events() {
       <PageHeader
         title="אירועים"
         subtitle={`כל ליד נכנס · ${d.events.length} סה״כ · ${upcomingClosed} אירועים סגורים עתידיים`}
+        action={<AddButton label="ליד חדש" onClick={() => setAdding(true)} />}
       />
+
+      <Modal open={adding} title="ליד חדש" onClose={() => setAdding(false)}>
+        <LeadForm onClose={() => setAdding(false)} />
+      </Modal>
 
       <div className="flex flex-wrap gap-2 mb-4">
         {filters.map((f) => (

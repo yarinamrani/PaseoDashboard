@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react'
 import { loadPaseoData, type DataSource } from './repository'
 import { paseoData as fallback } from './mockData'
 import type { PaseoData } from '../types'
@@ -8,16 +15,22 @@ interface DataContextValue {
   source: DataSource
   loading: boolean
   error?: string
+  refresh: () => Promise<void>
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<DataContextValue>({
+  const [state, setState] = useState<Omit<DataContextValue, 'refresh'>>({
     data: fallback,
     source: 'mock',
     loading: true,
   })
+
+  const refresh = useCallback(async () => {
+    const res = await loadPaseoData()
+    setState({ data: res.data, source: res.source, loading: false, error: res.error })
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -41,7 +54,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     )
   }
 
-  return <DataContext.Provider value={state}>{children}</DataContext.Provider>
+  return <DataContext.Provider value={{ ...state, refresh }}>{children}</DataContext.Provider>
 }
 
 function useDataContext() {
@@ -59,4 +72,9 @@ export function usePaseo(): PaseoData {
 export function useDataSource(): { source: DataSource; error?: string } {
   const { source, error } = useDataContext()
   return { source, error }
+}
+
+/** רענון הנתונים מהמקור — נקרא אחרי שמירה מטופס. */
+export function useRefreshPaseo(): () => Promise<void> {
+  return useDataContext().refresh
 }
