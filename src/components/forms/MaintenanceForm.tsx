@@ -1,35 +1,62 @@
 import { useState } from 'react'
 import { formatISO } from 'date-fns'
 import { TODAY } from '../../lib/dates'
-import { createMaintenance } from '../../data/repository'
-import { MAINTENANCE_AREAS, type MaintenanceArea, type MaintenanceStatus } from '../../types'
+import {
+  createMaintenance,
+  updateMaintenance,
+  deleteMaintenance,
+} from '../../data/repository'
+import {
+  MAINTENANCE_AREAS,
+  type MaintenanceArea,
+  type MaintenanceIssue,
+  type MaintenanceStatus,
+} from '../../types'
 import { Field, TextInput, Select } from './fields'
 import { FormShell } from './FormShell'
 
 const todayStr = formatISO(TODAY, { representation: 'date' })
 const STATUSES: MaintenanceStatus[] = ['פתוח', 'בטיפול', 'סגור']
 
-export function MaintenanceForm({ onClose }: { onClose: () => void }) {
-  const [issue, setIssue] = useState('')
-  const [area, setArea] = useState<MaintenanceArea>('מטבח')
-  const [openedDate, setOpenedDate] = useState(todayStr)
-  const [owner, setOwner] = useState('')
-  const [cost, setCost] = useState('')
-  const [status, setStatus] = useState<MaintenanceStatus>('פתוח')
+// טופס אחד שמשמש גם להוספה וגם לעריכה: אם מועבר `initial` — מצב עריכה.
+export function MaintenanceForm({
+  onClose,
+  initial,
+}: {
+  onClose: () => void
+  initial?: MaintenanceIssue
+}) {
+  const editing = !!initial
+  const [issue, setIssue] = useState(initial?.issue ?? '')
+  const [area, setArea] = useState<MaintenanceArea>(initial?.area ?? 'מטבח')
+  const [openedDate, setOpenedDate] = useState(initial?.openedDate ?? todayStr)
+  const [owner, setOwner] = useState(initial?.owner ?? '')
+  const [cost, setCost] = useState(initial?.cost != null ? String(initial.cost) : '')
+  const [status, setStatus] = useState<MaintenanceStatus>(initial?.status ?? 'פתוח')
 
   async function submit() {
-    await createMaintenance({
+    const payload = {
       issue: issue.trim(),
       area,
       openedDate,
       owner: owner.trim(),
       cost: Number(cost) || 0,
       status,
-    })
+    }
+    if (editing) {
+      await updateMaintenance(initial!.id, payload)
+    } else {
+      await createMaintenance(payload)
+    }
   }
 
   return (
-    <FormShell submitLabel="הוסף תקלה" onClose={onClose} onSubmit={submit}>
+    <FormShell
+      submitLabel={editing ? 'שמור שינויים' : 'הוסף תקלה'}
+      onClose={onClose}
+      onSubmit={submit}
+      onDelete={editing ? () => deleteMaintenance(initial!.id) : undefined}
+    >
       <Field label="תקלה">
         <TextInput value={issue} onChange={(e) => setIssue(e.target.value)} required />
       </Field>

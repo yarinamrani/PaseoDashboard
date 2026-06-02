@@ -270,3 +270,7 @@ export async function updateMaintenance(
   if (patch.status !== undefined) row.status = patch.status
   await run(client().from('dash_maintenance').update(row).eq('id', id))
 }
+
+export async function deleteMaintenance(id: string): Promise<void> {
+  await run(client().from('dash_maintenance').delete().eq('id', id))
+}

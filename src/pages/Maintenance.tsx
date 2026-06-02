@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
@@ -12,27 +13,45 @@ import { formatDate, daysSince } from '../lib/dates'
 import { shekel } from '../lib/format'
 import type { MaintenanceIssue } from '../types'
 
-const columns: Column<MaintenanceIssue>[] = [
-  { key: 'issue', header: 'תקלה', render: (r) => <span className="font-medium">{r.issue}</span> },
-  { key: 'area', header: 'אזור', render: (r) => <span className="text-xs px-2 py-0.5 rounded bg-white/5">{r.area}</span> },
-  { key: 'opened', header: 'נפתח', render: (r) => formatDate(r.openedDate) },
-  {
-    key: 'age',
-    header: 'ימים פתוח',
-    render: (r) => {
-      if (r.status === 'סגור') return <span className="text-paseo-muted">—</span>
-      const age = daysSince(r.openedDate)
-      return <span className={age > 3 ? 'text-paseo-red font-bold' : 'text-paseo-text'}>{age}</span>
-    },
-  },
-  { key: 'owner', header: 'אחראי', render: (r) => r.owner },
-  { key: 'cost', header: 'עלות', render: (r) => (r.cost ? shekel(r.cost) : '—') },
-  { key: 'status', header: 'סטטוס', render: (r) => <StatusBadge status={r.status} /> },
-]
-
 export function Maintenance() {
   const d = usePaseo()
   const [adding, setAdding] = useState(false)
+  // התקלה שנמצאת בעריכה כרגע (null = אין). פותח את אותו טופס במצב עריכה.
+  const [editing, setEditing] = useState<MaintenanceIssue | null>(null)
+
+  const columns: Column<MaintenanceIssue>[] = [
+    { key: 'issue', header: 'תקלה', render: (r) => <span className="font-medium">{r.issue}</span> },
+    { key: 'area', header: 'אזור', render: (r) => <span className="text-xs px-2 py-0.5 rounded bg-white/5">{r.area}</span> },
+    { key: 'opened', header: 'נפתח', render: (r) => formatDate(r.openedDate) },
+    {
+      key: 'age',
+      header: 'ימים פתוח',
+      render: (r) => {
+        if (r.status === 'סגור') return <span className="text-paseo-muted">—</span>
+        const age = daysSince(r.openedDate)
+        return <span className={age > 3 ? 'text-paseo-red font-bold' : 'text-paseo-text'}>{age}</span>
+      },
+    },
+    { key: 'owner', header: 'אחראי', render: (r) => r.owner },
+    { key: 'cost', header: 'עלות', render: (r) => (r.cost ? shekel(r.cost) : '—') },
+    { key: 'status', header: 'סטטוס', render: (r) => <StatusBadge status={r.status} /> },
+    {
+      key: 'actions',
+      header: 'עריכה',
+      align: 'center',
+      render: (r) => (
+        <button
+          onClick={() => setEditing(r)}
+          className="inline-flex items-center justify-center rounded-lg p-1.5 text-paseo-muted hover:text-paseo-gold hover:bg-white/5 transition-colors"
+          aria-label="עריכת תקלה"
+          title="עריכה / מחיקה"
+        >
+          <Pencil size={15} />
+        </button>
+      ),
+    },
+  ]
+
   const open = openIssues(d)
   const stale = staleIssues(d)
   const totalCost = d.maintenance.reduce((a, m) => a + m.cost, 0)
@@ -52,6 +71,16 @@ export function Maintenance() {
 
       <Modal open={adding} title="תקלה חדשה" onClose={() => setAdding(false)}>
         <MaintenanceForm onClose={() => setAdding(false)} />
+      </Modal>
+
+      <Modal open={!!editing} title="עריכת תקלה" onClose={() => setEditing(null)}>
+        {editing && (
+          <MaintenanceForm
+            key={editing.id}
+            initial={editing}
+            onClose={() => setEditing(null)}
+          />
+        )}
       </Modal>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
