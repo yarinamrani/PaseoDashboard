@@ -4,11 +4,8 @@ import type {
   PaseoData,
   SalesRecord,
   EventLead,
-  MarketingTask,
-  Review,
+  EventStatus,
   MaintenanceIssue,
-  Employee,
-  Supplier,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -48,38 +45,42 @@ const mapSales = (r: any): SalesRecord => ({
   notes: r.notes ?? undefined,
 })
 
-const mapEvent = (r: any): EventLead => ({
-  id: r.id,
-  customer: r.customer,
-  phone: r.phone,
-  eventType: r.event_type,
-  guests: r.guests,
-  date: r.date,
-  status: r.status,
-  owner: r.owner,
-  createdAt: r.created_at,
-  value: r.value ?? undefined,
-})
+// תרגום סטטוס ה-CRM (אנגלית) לסטטוס הדשבורד (עברית)
+const CRM_STATUS: Record<string, EventStatus> = {
+  new: 'ליד חדש',
+  contacted: 'שיחה בוצעה',
+  followup: 'שיחה בוצעה',
+  meeting: 'פגישה',
+  offer_sent: 'הצעה נשלחה',
+  negotiation: 'משא ומתן',
+  won: 'נסגר',
+  lost: 'אבוד',
+}
 
-const mapMarketing = (r: any): MarketingTask => ({
-  id: r.id,
-  task: r.task,
-  kind: r.kind,
-  type: r.type,
-  publishDate: r.publish_date,
-  budget: r.budget,
-  status: r.status,
-  leadsFromAd: r.leads_from_ad ?? undefined,
-})
+// מנרמל ערך תאריך (date / timestamp / ריק) למחרוזת ISO של יום (YYYY-MM-DD)
+function isoDay(v: unknown): string {
+  if (typeof v !== 'string' || !v) return ''
+  const m = v.match(/^\d{4}-\d{2}-\d{2}/)
+  return m ? m[0] : ''
+}
 
-const mapReview = (r: any): Review => ({
-  id: r.id,
-  date: r.date,
-  platform: r.platform,
-  rating: r.rating,
-  handled: r.handled,
-  owner: r.owner,
-  text: r.text ?? undefined,
+const numOr = (v: unknown, fallback = 0): number => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
+// ממפה שורת crm_leads (מערכת ה-CRM החיה) לטיפוס EventLead של הדשבורד
+const mapCrmLead = (r: any): EventLead => ({
+  id: String(r.id),
+  customer: r.full_name || '(ליד ללא שם)',
+  phone: r.phone || '',
+  eventType: r.event_type || '',
+  guests: numOr(r.guests_max ?? r.guests_min, 0),
+  date: isoDay(r.event_date) || isoDay(r.event_date_raw),
+  status: CRM_STATUS[String(r.status)] ?? 'ליד חדש',
+  owner: r.assigned_to || r.hostess || '',
+  createdAt: r.received_at || r.updated_at || new Date().toISOString(),
+  value: r.price_quoted != null ? numOr(r.price_quoted) : undefined,
 })
 
 const mapMaintenance = (r: any): MaintenanceIssue => ({
@@ -90,23 +91,6 @@ const mapMaintenance = (r: any): MaintenanceIssue => ({
   owner: r.owner,
   cost: r.cost,
   status: r.status,
-})
-
-const mapEmployee = (r: any): Employee => ({
-  id: r.id,
-  name: r.name,
-  role: r.role,
-  startDate: r.start_date,
-  status: r.status,
-})
-
-const mapSupplier = (r: any): Supplier => ({
-  id: r.id,
-  supplier: r.supplier,
-  domain: r.domain,
-  contact: r.contact,
-  phone: r.phone,
-  deliveryDays: r.delivery_days,
 })
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -132,41 +116,37 @@ export async function loadPaseoData(): Promise<LoadResult> {
   }
 
   try {
-    const [sales, events, marketing, reviews, maintenance, employees, suppliers] =
-      await withTimeout(
-        Promise.all([
-          supabase.from('sales').select('*').order('date', { ascending: true }),
-          supabase.from('events').select('*'),
-          supabase.from('marketing').select('*'),
-          supabase.from('reviews').select('*'),
-          supabase.from('maintenance').select('*'),
-          supabase.from('employees').select('*'),
-          supabase.from('suppliers').select('*'),
-        ]),
-        LOAD_TIMEOUT_MS,
-      )
+    // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
+    // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
+    const [events, sales, maintenance] = await withTimeout(
+      Promise.all([
+        supabase.from('crm_leads').select('*'),
+        supabase.from('dash_sales').select('*').order('date', { ascending: true }),
+        supabase.from('dash_maintenance').select('*'),
+      ]),
+      LOAD_TIMEOUT_MS,
+    )
 
-    const firstError =
-      sales.error ||
-      events.error ||
-      marketing.error ||
-      reviews.error ||
-      maintenance.error ||
-      employees.error ||
-      suppliers.error
-
-    if (firstError) throw firstError
+    // crm_leads הוא המקור הקריטי; אם הוא נכשל — נפילה מלאה ל-Mock
+    if (events.error) throw events.error
 
     return {
       source: 'supabase',
       data: {
-        sales: (sales.data ?? []).map(mapSales),
-        events: (events.data ?? []).map(mapEvent),
-        marketing: (marketing.data ?? []).map(mapMarketing),
-        reviews: (reviews.data ?? []).map(mapReview),
-        maintenance: (maintenance.data ?? []).map(mapMaintenance),
-        employees: (employees.data ?? []).map(mapEmployee),
-        suppliers: (suppliers.data ?? []).map(mapSupplier),
+        // לידים אמיתיים מ-crm_leads — מסננים לידים שסומנו כלא רלוונטיים (ספאם)
+        events: (events.data ?? [])
+          .filter((r: any) => r.relevance !== 'irrelevant')
+          .map(mapCrmLead),
+        // מכירות/תחזוקה מ-dash_; אם הטבלה לא זמינה — דמה
+        sales: sales.error ? paseoData.sales : (sales.data ?? []).map(mapSales),
+        maintenance: maintenance.error
+          ? paseoData.maintenance
+          : (maintenance.data ?? []).map(mapMaintenance),
+        // קבוצות שעדיין ללא מקור אמיתי — נתוני דמה
+        marketing: paseoData.marketing,
+        reviews: paseoData.reviews,
+        employees: paseoData.employees,
+        suppliers: paseoData.suppliers,
       },
     }
   } catch (e) {
@@ -194,7 +174,7 @@ export type SalesInput = Omit<SalesRecord, 'id'>
 export async function createSales(input: SalesInput): Promise<void> {
   await run(
     client()
-      .from('sales')
+      .from('dash_sales')
       .insert({
         id: newId('s'),
         date: input.date,
@@ -207,38 +187,55 @@ export async function createSales(input: SalesInput): Promise<void> {
   )
 }
 
-// --- אירועים / לידים ---
+// --- אירועים / לידים (כתיבה ל-crm_leads האמיתי) ---
+// תרגום הפוך: סטטוס דשבורד (עברית) -> סטטוס CRM (אנגלית)
+const STATUS_TO_CRM: Record<EventStatus, string> = {
+  'ליד חדש': 'new',
+  'שיחה בוצעה': 'contacted',
+  פגישה: 'meeting',
+  'הצעה נשלחה': 'offer_sent',
+  'משא ומתן': 'negotiation',
+  נסגר: 'won',
+  אבוד: 'lost',
+}
+
 export type EventInput = Omit<EventLead, 'id' | 'createdAt'>
 export async function createEvent(input: EventInput): Promise<void> {
   await run(
     client()
-      .from('events')
+      .from('crm_leads')
       .insert({
-        id: newId('e'),
-        customer: input.customer,
-        phone: input.phone,
-        event_type: input.eventType,
-        guests: input.guests,
-        date: input.date,
-        status: input.status,
-        owner: input.owner,
-        created_at: new Date().toISOString(),
-        value: input.value ?? null,
+        id: crypto.randomUUID(), // crm_leads.id הוא UUID
+        source: 'paseo_form', // לפי מוסכמת המקורות של ה-CRM
+        full_name: input.customer,
+        phone: input.phone || null,
+        event_type: input.eventType || null,
+        event_date: input.date || null,
+        guests_min: input.guests || null,
+        guests_max: input.guests || null,
+        status: STATUS_TO_CRM[input.status] ?? 'new',
+        relevance: 'relevant',
+        assigned_to: input.owner || null,
+        price_quoted: input.value ?? null,
+        received_at: new Date().toISOString(),
       }),
   )
 }
 
 export async function updateEvent(id: string, patch: Partial<EventInput>): Promise<void> {
-  const row: Record<string, unknown> = {}
-  if (patch.customer !== undefined) row.customer = patch.customer
+  const row: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (patch.customer !== undefined) row.full_name = patch.customer
   if (patch.phone !== undefined) row.phone = patch.phone
   if (patch.eventType !== undefined) row.event_type = patch.eventType
-  if (patch.guests !== undefined) row.guests = patch.guests
-  if (patch.date !== undefined) row.date = patch.date
-  if (patch.status !== undefined) row.status = patch.status
-  if (patch.owner !== undefined) row.owner = patch.owner
-  if (patch.value !== undefined) row.value = patch.value
-  await run(client().from('events').update(row).eq('id', id))
+  if (patch.guests !== undefined) {
+    row.guests_min = patch.guests
+    row.guests_max = patch.guests
+  }
+  if (patch.date !== undefined) row.event_date = patch.date
+  if (patch.status !== undefined) row.status = STATUS_TO_CRM[patch.status] ?? 'new'
+  if (patch.owner !== undefined) row.assigned_to = patch.owner
+  if (patch.value !== undefined) row.price_quoted = patch.value
+  await run(client().from('crm_leads').update(row).eq('id', id))
 }
 
 // --- תחזוקה / תקלות ---
@@ -246,7 +243,7 @@ export type MaintenanceInput = Omit<MaintenanceIssue, 'id'>
 export async function createMaintenance(input: MaintenanceInput): Promise<void> {
   await run(
     client()
-      .from('maintenance')
+      .from('dash_maintenance')
       .insert({
         id: newId('t'),
         issue: input.issue,
@@ -270,5 +267,5 @@ export async function updateMaintenance(
   if (patch.owner !== undefined) row.owner = patch.owner
   if (patch.cost !== undefined) row.cost = patch.cost
   if (patch.status !== undefined) row.status = patch.status
-  await run(client().from('maintenance').update(row).eq('id', id))
+  await run(client().from('dash_maintenance').update(row).eq('id', id))
 }
