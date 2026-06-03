@@ -235,23 +235,12 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
         events: (events.data ?? [])
           .filter((r: any) => r.relevance !== 'irrelevant')
           .map(mapCrmLead),
-        // מכירות/תחזוקה מ-dash_; אם הטבלה לא זמינה — דמה
-        sales: sales.error ? paseoData.sales : (sales.data ?? []).map(mapSales),
-        maintenance: maintenance.error
-          ? paseoData.maintenance
-          : (maintenance.data ?? []).map(mapMaintenance),
-        // קבוצות שעדיין ללא מקור אמיתי — נתוני דמה
-        // ספקים אמיתיים מטבלת suppliers; אם לא זמינה — דמה
-        suppliers: suppliers.error
-          ? paseoData.suppliers
-          : (suppliers.data ?? []).map(mapSupplier),
-        // שיווק — לוח ידני אמיתי (dash_marketing); ריק עד שתוסיף
+        // כל המקורות אמיתיים — ללא נפילה לנתוני דמה (ריק אם יש שגיאה זמנית)
+        sales: sales.error ? [] : (sales.data ?? []).map(mapSales),
+        maintenance: maintenance.error ? [] : (maintenance.data ?? []).map(mapMaintenance),
+        suppliers: suppliers.error ? [] : (suppliers.data ?? []).map(mapSupplier),
         marketing: marketing.error ? [] : (marketing.data ?? []).map(mapMarketing),
-        // ביקורות אמיתיות מ-Google (dash_reviews); אם אין — דמה
-        reviews:
-          reviews.error || !(reviews.data ?? []).length
-            ? paseoData.reviews
-            : (reviews.data ?? []).map(mapReview),
+        reviews: reviews.error ? [] : (reviews.data ?? []).map(mapReview),
         // עובדים — לוח ידני אמיתי (dash_employees); ריק עד שתוסיף
         employees: employees.error ? [] : (employees.data ?? []).map(mapEmployee),
         professionals: professionals.error
