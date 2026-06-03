@@ -3,6 +3,7 @@ import { createEmployee, updateEmployee, deleteEmployee } from '../../data/repos
 import {
   EMPLOYEE_STATUSES,
   DEPARTMENTS,
+  VENUES,
   type Employee,
   type EmployeeStatus,
 } from '../../types'
@@ -18,20 +19,22 @@ export function EmployeeForm({
 }) {
   const editing = !!initial
   const [name, setName] = useState(initial?.name ?? '')
+  const [venue, setVenue] = useState<string>(initial?.venue ?? VENUES[0])
   const [department, setDepartment] = useState<string>(initial?.department ?? DEPARTMENTS[0])
   const [role, setRole] = useState(initial?.role ?? '')
+  const [hourlyRate, setHourlyRate] = useState(initial?.hourlyRate != null ? String(initial.hourlyRate) : '')
   const [startDate, setStartDate] = useState(initial?.startDate ?? '')
   const [status, setStatus] = useState<EmployeeStatus>(initial?.status ?? 'פעיל')
-  const [salary, setSalary] = useState(initial?.salary != null ? String(initial.salary) : '')
 
   async function submit() {
     const payload = {
       name: name.trim(),
+      venue,
       department,
       role: role.trim(),
+      hourlyRate: hourlyRate === '' ? undefined : Number(hourlyRate),
       startDate,
       status,
-      salary: salary === '' ? undefined : Number(salary),
     }
     if (editing) await updateEmployee(initial!.id, payload)
     else await createEmployee(payload)
@@ -48,6 +51,15 @@ export function EmployeeForm({
         <TextInput value={name} onChange={(e) => setName(e.target.value)} required />
       </Field>
       <div className="grid grid-cols-2 gap-3">
+        <Field label="מסעדה">
+          <Select value={venue} onChange={(e) => setVenue(e.target.value)}>
+            {VENUES.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label="מחלקה">
           <Select value={department} onChange={(e) => setDepartment(e.target.value)}>
             {DEPARTMENTS.map((dp) => (
@@ -57,14 +69,16 @@ export function EmployeeForm({
             ))}
           </Select>
         </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
         <Field label="תפקיד">
           <TextInput value={role} onChange={(e) => setRole(e.target.value)} />
         </Field>
+        <Field label="תעריף לשעה (₪)">
+          <TextInput type="number" min="0" step="0.5" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
+        </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="שכר (₪)">
-          <TextInput type="number" min="0" value={salary} onChange={(e) => setSalary(e.target.value)} />
-        </Field>
         <Field label="סטטוס">
           <Select value={status} onChange={(e) => setStatus(e.target.value as EmployeeStatus)}>
             {EMPLOYEE_STATUSES.map((s) => (
@@ -74,10 +88,10 @@ export function EmployeeForm({
             ))}
           </Select>
         </Field>
+        <Field label="תאריך התחלה">
+          <TextInput type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </Field>
       </div>
-      <Field label="תאריך התחלה">
-        <TextInput type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-      </Field>
     </FormShell>
   )
 }

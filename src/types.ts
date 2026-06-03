@@ -142,9 +142,20 @@ export interface Employee {
   name: string // שם
   role: string // תפקיד
   department?: string // מחלקה
+  venue?: string // מסעדה: פסאו / אומינו
   startDate: string // תאריך התחלה (ISO)
   status: EmployeeStatus // סטטוס
-  salary?: number // שכר (₪)
+  hourlyRate?: number // תעריף לשעה (₪)
+}
+
+export const VENUES = ['פסאו', 'אומינו'] as const
+
+// שעות עבודה של עובד בחודש (מדוחות השעון) — לחישוב שכר ולהיסטוריה
+export interface PayrollEntry {
+  employeeId: string
+  name: string
+  month: string // YYYY-MM
+  hours: number
 }
 
 // --- קבוצה 7: ספקים ---
@@ -223,6 +234,7 @@ export interface PaseoData {
   suppliers: Supplier[]
   professionals: Professional[]
   reservations: Reservation[]
+  payroll: PayrollEntry[]
   // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
   googleRating?: number
   googleReviewCount?: number

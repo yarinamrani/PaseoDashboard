@@ -12,6 +12,7 @@ import type {
   Review,
   Professional,
   Reservation,
+  PayrollEntry,
   MarketingTask,
   MarketingKind,
   MarketingType,
@@ -146,9 +147,17 @@ const mapEmployee = (r: any): Employee => ({
   name: r.name || '',
   role: r.role || '',
   department: r.department || undefined,
+  venue: r.venue || undefined,
   startDate: isoDay(r.start_date),
   status: (r.status as EmployeeStatus) || 'פעיל',
-  salary: r.salary != null ? Number(r.salary) : undefined,
+  hourlyRate: r.hourly_rate != null ? Number(r.hourly_rate) : undefined,
+})
+
+const mapPayroll = (r: any): PayrollEntry => ({
+  employeeId: String(r.employee_id),
+  name: r.name || '',
+  month: r.month || '',
+  hours: numOr(r.hours, 0),
 })
 
 const mapReservation = (r: any): Reservation => ({
@@ -204,7 +213,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees] =
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll] =
       await withTimeout(
         Promise.all([
           supabase.from('crm_leads').select('*'),
@@ -217,6 +226,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           supabase.from('dash_reservations').select('*').order('time', { ascending: true }),
           supabase.from('dash_marketing').select('*').order('publish_date', { ascending: false }),
           supabase.from('dash_employees').select('*'),
+          supabase.from('dash_payroll').select('*'),
         ]),
         LOAD_TIMEOUT_MS,
       )
@@ -251,6 +261,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
         reservations: reservations.error
           ? []
           : (reservations.data ?? []).map(mapReservation),
+        payroll: payroll.error ? [] : (payroll.data ?? []).map(mapPayroll),
         googleRating: gRating,
         googleReviewCount: gCount,
       },
@@ -448,9 +459,10 @@ export async function createEmployee(input: EmployeeInput): Promise<void> {
       name: input.name,
       role: input.role,
       department: input.department ?? null,
+      venue: input.venue ?? null,
       start_date: input.startDate || null,
       status: input.status,
-      salary: input.salary ?? null,
+      hourly_rate: input.hourlyRate ?? null,
     }),
   )
 }
@@ -459,9 +471,10 @@ export async function updateEmployee(id: string, patch: Partial<EmployeeInput>):
   if (patch.name !== undefined) row.name = patch.name
   if (patch.role !== undefined) row.role = patch.role
   if (patch.department !== undefined) row.department = patch.department || null
+  if (patch.venue !== undefined) row.venue = patch.venue || null
   if (patch.startDate !== undefined) row.start_date = patch.startDate || null
   if (patch.status !== undefined) row.status = patch.status
-  if (patch.salary !== undefined) row.salary = patch.salary ?? null
+  if (patch.hourlyRate !== undefined) row.hourly_rate = patch.hourlyRate ?? null
   await run(client().from('dash_employees').update(row).eq('id', id))
 }
 export async function deleteEmployee(id: string): Promise<void> {
