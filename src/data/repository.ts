@@ -6,6 +6,7 @@ import type {
   EventLead,
   EventStatus,
   MaintenanceIssue,
+  Supplier,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -83,6 +84,32 @@ const mapCrmLead = (r: any): EventLead => ({
   value: r.price_quoted != null ? numOr(r.price_quoted) : undefined,
 })
 
+// ספקים אמיתיים מטבלת suppliers — תרגום קטגוריה וימי אספקה לעברית
+const SUPPLIER_CAT: Record<string, string> = {
+  food: 'מזון',
+  logistics: 'לוגיסטיקה',
+  alcohol: 'אלכוהול',
+  beverages: 'משקאות',
+  cleaning: 'ניקיון',
+  packaging: 'אריזות',
+  equipment: 'ציוד',
+  services: 'שירותים',
+}
+const DAY_HE: Record<string, string> = {
+  sun: 'א׳', mon: 'ב׳', tue: 'ג׳', wed: 'ד׳', thu: 'ה׳', fri: 'ו׳', sat: 'ש׳',
+}
+const heDays = (v: unknown): string =>
+  Array.isArray(v) && v.length ? v.map((x: string) => DAY_HE[x] ?? x).join(', ') : ''
+
+const mapSupplier = (r: any): Supplier => ({
+  id: String(r.id),
+  supplier: r.name || r.name_full || '(ספק)',
+  domain: SUPPLIER_CAT[String(r.category)] ?? (r.category || '—'),
+  contact: r.contact_name || '',
+  phone: r.phone || '',
+  deliveryDays: heDays(r.delivery_days) || heDays(r.order_days) || '—',
+})
+
 const mapMaintenance = (r: any): MaintenanceIssue => ({
   id: r.id,
   issue: r.issue,
@@ -118,11 +145,12 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance] = await withTimeout(
+    const [events, sales, maintenance, suppliers] = await withTimeout(
       Promise.all([
         supabase.from('crm_leads').select('*'),
         supabase.from('dash_sales').select('*').order('date', { ascending: true }),
         supabase.from('dash_maintenance').select('*'),
+        supabase.from('suppliers').select('*').eq('active', true),
       ]),
       LOAD_TIMEOUT_MS,
     )
@@ -143,10 +171,13 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           ? paseoData.maintenance
           : (maintenance.data ?? []).map(mapMaintenance),
         // קבוצות שעדיין ללא מקור אמיתי — נתוני דמה
+        // ספקים אמיתיים מטבלת suppliers; אם לא זמינה — דמה
+        suppliers: suppliers.error
+          ? paseoData.suppliers
+          : (suppliers.data ?? []).map(mapSupplier),
         marketing: paseoData.marketing,
         reviews: paseoData.reviews,
         employees: paseoData.employees,
-        suppliers: paseoData.suppliers,
       },
     }
   } catch (e) {

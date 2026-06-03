@@ -9,6 +9,7 @@ import {
   lastWeekToDateRevenue,
   upcomingEvents,
   openLeads,
+  newLeads,
   googleRating,
   openIssues,
   GOOGLE_TARGET,
@@ -23,6 +24,7 @@ export function OwnerControl() {
   const wowDelta = lwRev ? ((wRev - lwRev) / lwRev) * 100 : 0
   const upcoming = upcomingEvents(d, 30)
   const leads = openLeads(d)
+  const waiting = newLeads(d)
   const rating = googleRating(d)
   const issues = openIssues(d)
   const alerts = runAutomations(d)
@@ -59,12 +61,12 @@ export function OwnerControl() {
           sub={`30 יום קדימה · ${upcoming[0] ? `הקרוב: ${upcoming[0].customer}` : 'אין'}`}
         />
         <KpiCard
-          label="לידים פתוחים"
-          value={String(leads.length)}
+          label="לידים חדשים"
+          value={String(waiting.length)}
           icon={Inbox}
-          tone={leads.length > 0 ? 'warn' : 'neutral'}
+          tone={waiting.length > 0 ? 'warn' : 'good'}
           to="/events"
-          sub="ממתינים לטיפול בפייפליין"
+          sub={`ממתינים למענה ראשון · ${leads.length} בפייפליין בטיפול`}
         />
         <KpiCard
           label="דירוג גוגל"

@@ -67,6 +67,12 @@ export function openLeads(d: PaseoData) {
   return d.events.filter((e) => OPEN_LEAD_STATUSES.includes(e.status))
 }
 
+// לידים שבאמת ממתינים למענה ראשון = "ליד חדש" בלבד.
+// לידים ב"שיחה בוצעה"/הצעה/מו״מ כבר בטיפול ואינם נחשבים "ממתינים".
+export function newLeads(d: PaseoData) {
+  return d.events.filter((e) => e.status === 'ליד חדש')
+}
+
 export function leadsByStatus(d: PaseoData) {
   const counts: Record<string, number> = {}
   for (const e of d.events) counts[e.status] = (counts[e.status] ?? 0) + 1
