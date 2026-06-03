@@ -63,6 +63,22 @@ Notes:
   `ordersByChannel` (dineIn/takeaway/delivery+providers), `cogs`.
 - List restaurants (to map names→ids): `GET /restaurants/simple-list`.
 
+### OnTopo (reservations + guest surveys)
+- GraphQL mgmt API `https://top-openapi-legacy.prod-01.ontopo.cz/graphql`; auth via
+  stored tokens (`ontopo_tokens` row id='main') → `switchVenue` (with `refreshToken`
+  fallback using an anonymous token). Paseo venue_id `62caa154a9f912000f698bc3`.
+- **Guest surveys/reviews are NOT a top-level field** — they're embedded in each
+  reservation: `getPartiesBy(input:{filterType:"date",filterParam:"YYYYMMDD",hour:"0400"})`
+  returns parties; each `party.value.survey` = `{ date, comments, isPositiveFeedback,
+  questions:[{question:"האוכל"/"השירות"/"האווירה", rating}] }`.
+- ⚠️ Survey rating is **inverted**: `1`=excellent, `3`=worst. Map to 5-star with
+  `stars = clamp(7 - 2*rating, 1, 5)`; overall = round(avg). Fallback to
+  `isPositiveFeedback ? 5 : 2` when no questions.
+- `getNotifyData` is the staff/reservation NOTES feed (not surveys) with quirky
+  pagination — don't use it for reviews.
+- Sync per-date (loop dates) into `dash_reviews` (platform 'OnTopo'); daily cron
+  syncs the last ~4 days (surveys arrive a day or two after the visit).
+
 ### BeeComm POS (backoffice.beecommcloud.com)
 - Firebase **phone OTP** auth → hard to automate (OTP to owner's phone +
   reCAPTCHA). Prefer pulling the same data from a BI layer (Alfred) instead.
