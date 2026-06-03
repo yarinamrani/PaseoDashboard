@@ -22,7 +22,6 @@ import {
   upcomingEvents,
   googleRating,
   reviewsThisMonth,
-  marketingStats,
   openIssues,
   GOOGLE_TARGET,
 } from '../lib/metrics'
@@ -63,7 +62,6 @@ export function CeoDashboard() {
   const upcoming = upcomingEvents(d, 30)
   const rating = googleRating(d)
   const monthReviews = reviewsThisMonth(d)
-  const mkt = marketingStats(d)
   const issues = openIssues(d)
   const reds = redTasks(d)
 
@@ -242,18 +240,6 @@ export function CeoDashboard() {
               label="שליליות"
               tone="text-paseo-red"
             />
-          </div>
-        </Widget>
-
-        {/* 9: תוכן שיווקי */}
-        <Widget title="תוכן שיווקי" to="/marketing" className="lg:col-span-2">
-          <div className="grid grid-cols-3 gap-3 mb-3">
-            <Stat value={mkt.postsDone} label="פוסטים שבוצעו" tone="text-paseo-blue" />
-            <Stat value={mkt.reelsDone} label="רילסים שבוצעו" tone="text-paseo-blue" />
-            <Stat value={mkt.activeCampaigns} label="קמפיינים פעילים" tone="text-paseo-green" />
-          </div>
-          <div className="text-xs text-paseo-muted text-center border-t border-paseo-border pt-2">
-            {num(mkt.adLeads)} לידים הגיעו מפרסום ממומן
           </div>
         </Widget>
 
