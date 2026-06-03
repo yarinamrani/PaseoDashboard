@@ -17,6 +17,7 @@ import { Reviews } from './pages/Reviews'
 import { Maintenance } from './pages/Maintenance'
 import { Employees } from './pages/Employees'
 import { Suppliers } from './pages/Suppliers'
+import { Professionals } from './pages/Professionals'
 
 const router = createBrowserRouter([
   {
@@ -31,6 +32,7 @@ const router = createBrowserRouter([
       { path: 'events', element: <Events /> },
       { path: 'reviews', element: <Reviews /> },
       { path: 'maintenance', element: <Maintenance /> },
+      { path: 'professionals', element: <Professionals /> },
       { path: 'employees', element: <Employees /> },
       { path: 'suppliers', element: <Suppliers /> },
     ],

@@ -138,6 +138,28 @@ export interface Supplier {
   deliveryDays: string // ימי אספקה
 }
 
+// --- אנשי מקצוע (לתחזוקה) ---
+export const PROFESSIONS = [
+  'חשמלאי',
+  'אינסטלטור',
+  'טכנאי מזגנים',
+  'נגר',
+  'מנעולן',
+  'צבעי',
+  'טכנאי קירור',
+  'גנן',
+  'כללי',
+] as const
+export type Profession = (typeof PROFESSIONS)[number]
+
+export interface Professional {
+  id: string
+  name: string // שם
+  profession: string // תחום
+  phone: string // טלפון
+  notes?: string // הערות
+}
+
 // --- אוטומציות / התראות ---
 export type AlertSeverity = 'high' | 'medium' | 'info'
 
@@ -160,6 +182,7 @@ export interface PaseoData {
   maintenance: MaintenanceIssue[]
   employees: Employee[]
   suppliers: Supplier[]
+  professionals: Professional[]
   // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
   googleRating?: number
   googleReviewCount?: number

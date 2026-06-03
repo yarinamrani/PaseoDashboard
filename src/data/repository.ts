@@ -8,6 +8,7 @@ import type {
   MaintenanceIssue,
   Supplier,
   Review,
+  Professional,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -123,6 +124,14 @@ const mapReview = (r: any): Review => ({
   text: r.text ?? undefined,
 })
 
+const mapProfessional = (r: any): Professional => ({
+  id: String(r.id),
+  name: r.name || '',
+  profession: r.profession || '',
+  phone: r.phone || '',
+  notes: r.notes ?? undefined,
+})
+
 const mapMaintenance = (r: any): MaintenanceIssue => ({
   id: r.id,
   issue: r.issue,
@@ -158,17 +167,19 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta] = await withTimeout(
-      Promise.all([
-        supabase.from('crm_leads').select('*'),
-        supabase.from('dash_sales').select('*').order('date', { ascending: true }),
-        supabase.from('dash_maintenance').select('*'),
-        supabase.from('suppliers').select('*').eq('active', true),
-        supabase.from('dash_reviews').select('*').order('date', { ascending: false }),
-        supabase.from('dash_meta').select('key,value'),
-      ]),
-      LOAD_TIMEOUT_MS,
-    )
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals] =
+      await withTimeout(
+        Promise.all([
+          supabase.from('crm_leads').select('*'),
+          supabase.from('dash_sales').select('*').order('date', { ascending: true }),
+          supabase.from('dash_maintenance').select('*'),
+          supabase.from('suppliers').select('*').eq('active', true),
+          supabase.from('dash_reviews').select('*').order('date', { ascending: false }),
+          supabase.from('dash_meta').select('key,value'),
+          supabase.from('dash_professionals').select('*').eq('active', true),
+        ]),
+        LOAD_TIMEOUT_MS,
+      )
 
     // דירוג גוגל האמיתי מטבלת המטא (4.3 / 665), לא ממוצע 5 הביקורות
     const metaMap: Record<string, string> = {}
@@ -203,6 +214,9 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
             ? paseoData.reviews
             : (reviews.data ?? []).map(mapReview),
         employees: paseoData.employees,
+        professionals: professionals.error
+          ? []
+          : (professionals.data ?? []).map(mapProfessional),
         googleRating: gRating,
         googleReviewCount: gCount,
       },
@@ -331,4 +345,33 @@ export async function updateMaintenance(
 
 export async function deleteMaintenance(id: string): Promise<void> {
   await run(client().from('dash_maintenance').delete().eq('id', id))
+}
+
+// --- אנשי מקצוע ---
+export type ProfessionalInput = Omit<Professional, 'id'>
+export async function createProfessional(input: ProfessionalInput): Promise<void> {
+  await run(
+    client().from('dash_professionals').insert({
+      id: newId('pro'),
+      name: input.name,
+      profession: input.profession,
+      phone: input.phone,
+      notes: input.notes ?? null,
+      active: true,
+    }),
+  )
+}
+export async function updateProfessional(
+  id: string,
+  patch: Partial<ProfessionalInput>,
+): Promise<void> {
+  const row: Record<string, unknown> = {}
+  if (patch.name !== undefined) row.name = patch.name
+  if (patch.profession !== undefined) row.profession = patch.profession
+  if (patch.phone !== undefined) row.phone = patch.phone
+  if (patch.notes !== undefined) row.notes = patch.notes
+  await run(client().from('dash_professionals').update(row).eq('id', id))
+}
+export async function deleteProfessional(id: string): Promise<void> {
+  await run(client().from('dash_professionals').delete().eq('id', id))
 }
