@@ -160,4 +160,7 @@ export interface PaseoData {
   maintenance: MaintenanceIssue[]
   employees: Employee[]
   suppliers: Supplier[]
+  // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
+  googleRating?: number
+  googleReviewCount?: number
 }

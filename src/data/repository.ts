@@ -7,6 +7,7 @@ import type {
   EventStatus,
   MaintenanceIssue,
   Supplier,
+  Review,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -111,6 +112,17 @@ const mapSupplier = (r: any): Supplier => ({
   deliveryDays: heDays(r.delivery_days) || heDays(r.order_days) || '—',
 })
 
+// ביקורת אמיתית מטבלת dash_reviews (כרגע Google; בעתיד גם OnTopo)
+const mapReview = (r: any): Review => ({
+  id: String(r.id),
+  date: isoDay(r.date) || isoDay(r.created_at),
+  platform: (r.platform as Review['platform']) || 'Google',
+  rating: numOr(r.rating, 0),
+  handled: !!r.handled,
+  owner: r.owner || '',
+  text: r.text ?? undefined,
+})
+
 const mapMaintenance = (r: any): MaintenanceIssue => ({
   id: r.id,
   issue: r.issue,
@@ -146,15 +158,23 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers] = await withTimeout(
+    const [events, sales, maintenance, suppliers, reviews, meta] = await withTimeout(
       Promise.all([
         supabase.from('crm_leads').select('*'),
         supabase.from('dash_sales').select('*').order('date', { ascending: true }),
         supabase.from('dash_maintenance').select('*'),
         supabase.from('suppliers').select('*').eq('active', true),
+        supabase.from('dash_reviews').select('*').order('date', { ascending: false }),
+        supabase.from('dash_meta').select('key,value'),
       ]),
       LOAD_TIMEOUT_MS,
     )
+
+    // דירוג גוגל האמיתי מטבלת המטא (4.3 / 665), לא ממוצע 5 הביקורות
+    const metaMap: Record<string, string> = {}
+    for (const m of meta.data ?? []) metaMap[m.key] = m.value
+    const gRating = metaMap.google_rating ? Number(metaMap.google_rating) : undefined
+    const gCount = metaMap.google_review_count ? Number(metaMap.google_review_count) : undefined
 
     // crm_leads הוא המקור הקריטי; אם הוא נכשל — נפילה מלאה ל-Mock
     if (events.error) throw events.error
@@ -177,8 +197,14 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           ? paseoData.suppliers
           : (suppliers.data ?? []).map(mapSupplier),
         marketing: paseoData.marketing,
-        reviews: paseoData.reviews,
+        // ביקורות אמיתיות מ-Google (dash_reviews); אם אין — דמה
+        reviews:
+          reviews.error || !(reviews.data ?? []).length
+            ? paseoData.reviews
+            : (reviews.data ?? []).map(mapReview),
         employees: paseoData.employees,
+        googleRating: gRating,
+        googleReviewCount: gCount,
       },
     }
   } catch (e) {

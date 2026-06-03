@@ -59,13 +59,13 @@ export function Reviews() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Widget title="דירוג גוגל">
           <Stat
-            value={rating.toFixed(2)}
-            label={`יעד ${GOOGLE_TARGET}+`}
+            value={rating.toFixed(1)}
+            label={d.googleReviewCount ? `${d.googleReviewCount} ביקורות · יעד ${GOOGLE_TARGET}+` : `יעד ${GOOGLE_TARGET}+`}
             tone={rating >= GOOGLE_TARGET ? 'text-paseo-green' : 'text-paseo-amber'}
           />
         </Widget>
-        <Widget title="ביקורות החודש">
-          <Stat value={monthReviews.length} label="התקבלו" tone="text-paseo-text" />
+        <Widget title="ביקורות אחרונות">
+          <Stat value={d.reviews.length} label="נמשכו מגוגל" tone="text-paseo-text" />
         </Widget>
         <Widget title="ביקורות שליליות">
           <Stat

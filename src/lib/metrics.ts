@@ -136,6 +136,8 @@ export function openPipelineValue(d: PaseoData) {
 
 // --- ביקורות ---
 export function googleRating(d: PaseoData) {
+  // הדירוג האמיתי מגוגל (אגרגטיבי) אם קיים; אחרת ממוצע הביקורות שנמשכו
+  if (d.googleRating != null) return d.googleRating
   const g = d.reviews.filter((r) => r.platform === 'Google')
   if (!g.length) return 0
   return g.reduce((a, r) => a + r.rating, 0) / g.length
