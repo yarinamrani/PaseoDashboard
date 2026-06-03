@@ -124,6 +124,8 @@ export interface MaintenanceIssue {
 // --- קבוצה 6: עובדים ---
 export type EmployeeStatus = 'פעיל' | 'בחופשה' | 'סיים'
 
+export const EMPLOYEE_STATUSES: EmployeeStatus[] = ['פעיל', 'בחופשה', 'סיים']
+
 export interface Employee {
   id: string
   name: string // שם

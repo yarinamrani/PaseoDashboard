@@ -5,6 +5,8 @@ import type {
   SalesRecord,
   EventLead,
   EventStatus,
+  Employee,
+  EmployeeStatus,
   MaintenanceIssue,
   Supplier,
   Review,
@@ -139,6 +141,14 @@ const mapMarketing = (r: any): MarketingTask => ({
   status: (r.status as MarketingStatus) || 'מתוכנן',
 })
 
+const mapEmployee = (r: any): Employee => ({
+  id: String(r.id),
+  name: r.name || '',
+  role: r.role || '',
+  startDate: isoDay(r.start_date),
+  status: (r.status as EmployeeStatus) || 'פעיל',
+})
+
 const mapReservation = (r: any): Reservation => ({
   id: String(r.id),
   date: isoDay(r.date),
@@ -192,7 +202,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing] =
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees] =
       await withTimeout(
         Promise.all([
           supabase.from('crm_leads').select('*'),
@@ -204,6 +214,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           supabase.from('dash_professionals').select('*').eq('active', true),
           supabase.from('dash_reservations').select('*').order('time', { ascending: true }),
           supabase.from('dash_marketing').select('*').order('publish_date', { ascending: false }),
+          supabase.from('dash_employees').select('*'),
         ]),
         LOAD_TIMEOUT_MS,
       )
@@ -241,7 +252,8 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           reviews.error || !(reviews.data ?? []).length
             ? paseoData.reviews
             : (reviews.data ?? []).map(mapReview),
-        employees: paseoData.employees,
+        // עובדים — לוח ידני אמיתי (dash_employees); ריק עד שתוסיף
+        employees: employees.error ? [] : (employees.data ?? []).map(mapEmployee),
         professionals: professionals.error
           ? []
           : (professionals.data ?? []).map(mapProfessional),
@@ -434,4 +446,29 @@ export async function updateMarketing(id: string, patch: Partial<MarketingInput>
 }
 export async function deleteMarketing(id: string): Promise<void> {
   await run(client().from('dash_marketing').delete().eq('id', id))
+}
+
+// --- עובדים ---
+export type EmployeeInput = Omit<Employee, 'id'>
+export async function createEmployee(input: EmployeeInput): Promise<void> {
+  await run(
+    client().from('dash_employees').insert({
+      id: newId('emp'),
+      name: input.name,
+      role: input.role,
+      start_date: input.startDate || null,
+      status: input.status,
+    }),
+  )
+}
+export async function updateEmployee(id: string, patch: Partial<EmployeeInput>): Promise<void> {
+  const row: Record<string, unknown> = {}
+  if (patch.name !== undefined) row.name = patch.name
+  if (patch.role !== undefined) row.role = patch.role
+  if (patch.startDate !== undefined) row.start_date = patch.startDate || null
+  if (patch.status !== undefined) row.status = patch.status
+  await run(client().from('dash_employees').update(row).eq('id', id))
+}
+export async function deleteEmployee(id: string): Promise<void> {
+  await run(client().from('dash_employees').delete().eq('id', id))
 }
