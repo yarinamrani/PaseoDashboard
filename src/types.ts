@@ -73,7 +73,7 @@ export interface MarketingTask {
 }
 
 // --- קבוצה 4: ביקורות ---
-export type ReviewPlatform = 'Google' | 'OnTop' | 'Facebook'
+export type ReviewPlatform = 'Google' | 'OnTopo' | 'OnTop' | 'Facebook'
 
 export interface Review {
   id: string

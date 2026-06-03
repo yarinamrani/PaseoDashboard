@@ -17,6 +17,7 @@ function Stars({ rating }: { rating: number }) {
 
 const platformColor: Record<string, string> = {
   Google: 'bg-paseo-blue/15 text-paseo-blue',
+  OnTopo: 'bg-paseo-green/15 text-paseo-green',
   OnTop: 'bg-paseo-green/15 text-paseo-green',
   Facebook: 'bg-paseo-gold/15 text-paseo-gold',
 }
@@ -59,7 +60,7 @@ export function Reviews() {
 
   return (
     <div>
-      <PageHeader title="ביקורות" subtitle="Google · OnTop · Facebook" />
+      <PageHeader title="ביקורות" subtitle="Google · OnTopo" />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Widget title="דירוג גוגל">
