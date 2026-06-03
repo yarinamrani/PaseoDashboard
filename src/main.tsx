@@ -14,6 +14,7 @@ import { Automations } from './pages/Automations'
 import { Sales } from './pages/Sales'
 import { Events } from './pages/Events'
 import { Guests } from './pages/Guests'
+import { Marketing } from './pages/Marketing'
 import { Reviews } from './pages/Reviews'
 import { Maintenance } from './pages/Maintenance'
 import { Employees } from './pages/Employees'
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
       { path: 'sales', element: <Sales /> },
       { path: 'events', element: <Events /> },
       { path: 'guests', element: <Guests /> },
+      { path: 'marketing', element: <Marketing /> },
       { path: 'reviews', element: <Reviews /> },
       { path: 'maintenance', element: <Maintenance /> },
       { path: 'professionals', element: <Professionals /> },

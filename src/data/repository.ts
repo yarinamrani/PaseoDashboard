@@ -10,6 +10,10 @@ import type {
   Review,
   Professional,
   Reservation,
+  MarketingTask,
+  MarketingKind,
+  MarketingType,
+  MarketingStatus,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -125,6 +129,16 @@ const mapReview = (r: any): Review => ({
   text: r.text ?? undefined,
 })
 
+const mapMarketing = (r: any): MarketingTask => ({
+  id: String(r.id),
+  task: r.task || '',
+  kind: (r.kind as MarketingKind) || 'תוכן',
+  type: (r.type as MarketingType) || 'פוסט שקיעה',
+  publishDate: isoDay(r.publish_date),
+  budget: numOr(r.budget, 0),
+  status: (r.status as MarketingStatus) || 'מתוכנן',
+})
+
 const mapReservation = (r: any): Reservation => ({
   id: String(r.id),
   date: isoDay(r.date),
@@ -178,7 +192,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations] =
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing] =
       await withTimeout(
         Promise.all([
           supabase.from('crm_leads').select('*'),
@@ -189,6 +203,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           supabase.from('dash_meta').select('key,value'),
           supabase.from('dash_professionals').select('*').eq('active', true),
           supabase.from('dash_reservations').select('*').order('time', { ascending: true }),
+          supabase.from('dash_marketing').select('*').order('publish_date', { ascending: false }),
         ]),
         LOAD_TIMEOUT_MS,
       )
@@ -219,7 +234,8 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
         suppliers: suppliers.error
           ? paseoData.suppliers
           : (suppliers.data ?? []).map(mapSupplier),
-        marketing: paseoData.marketing,
+        // שיווק — לוח ידני אמיתי (dash_marketing); ריק עד שתוסיף
+        marketing: marketing.error ? [] : (marketing.data ?? []).map(mapMarketing),
         // ביקורות אמיתיות מ-Google (dash_reviews); אם אין — דמה
         reviews:
           reviews.error || !(reviews.data ?? []).length
@@ -389,4 +405,33 @@ export async function updateProfessional(
 }
 export async function deleteProfessional(id: string): Promise<void> {
   await run(client().from('dash_professionals').delete().eq('id', id))
+}
+
+// --- שיווק ---
+export type MarketingInput = Omit<MarketingTask, 'id' | 'leadsFromAd'>
+export async function createMarketing(input: MarketingInput): Promise<void> {
+  await run(
+    client().from('dash_marketing').insert({
+      id: newId('mkt'),
+      task: input.task,
+      kind: input.kind,
+      type: input.type,
+      publish_date: input.publishDate || null,
+      budget: input.budget || 0,
+      status: input.status,
+    }),
+  )
+}
+export async function updateMarketing(id: string, patch: Partial<MarketingInput>): Promise<void> {
+  const row: Record<string, unknown> = {}
+  if (patch.task !== undefined) row.task = patch.task
+  if (patch.kind !== undefined) row.kind = patch.kind
+  if (patch.type !== undefined) row.type = patch.type
+  if (patch.publishDate !== undefined) row.publish_date = patch.publishDate || null
+  if (patch.budget !== undefined) row.budget = patch.budget
+  if (patch.status !== undefined) row.status = patch.status
+  await run(client().from('dash_marketing').update(row).eq('id', id))
+}
+export async function deleteMarketing(id: string): Promise<void> {
+  await run(client().from('dash_marketing').delete().eq('id', id))
 }

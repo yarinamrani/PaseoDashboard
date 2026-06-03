@@ -61,6 +61,10 @@ export type MarketingType =
 
 export type MarketingStatus = 'מתוכנן' | 'בעבודה' | 'פורסם' | 'פעיל' | 'הושהה'
 
+export const CONTENT_TYPES: MarketingType[] = ['פוסט שקיעה', 'פוסט בראנץ׳', 'פוסט אירועים', 'רילס']
+export const SPONSORED_TYPES: MarketingType[] = ['קמפיין אירועים', 'קמפיין שקיעה', 'קמפיין בראנץ׳']
+export const MARKETING_STATUSES: MarketingStatus[] = ['מתוכנן', 'בעבודה', 'פעיל', 'פורסם', 'הושהה']
+
 export interface MarketingTask {
   id: string
   task: string // משימה

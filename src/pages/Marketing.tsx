@@ -1,61 +1,77 @@
+import { useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
-import { Widget, Stat } from '../components/Widget'
+import { Widget } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
+import { AddButton } from '../components/AddButton'
+import { Modal } from '../components/Modal'
+import { MarketingForm } from '../components/forms/MarketingForm'
 import { usePaseo } from '../data/DataContext'
-import { marketingStats } from '../lib/metrics'
 import { formatDate } from '../lib/dates'
-import { shekel, num } from '../lib/format'
+import { shekel } from '../lib/format'
 import type { MarketingTask } from '../types'
-
-const columns: Column<MarketingTask>[] = [
-  { key: 'task', header: 'משימה', render: (r) => <span className="font-medium">{r.task}</span> },
-  {
-    key: 'kind',
-    header: 'קטגוריה',
-    render: (r) => (
-      <span
-        className={`text-xs px-2 py-0.5 rounded ${
-          r.kind === 'ממומן' ? 'bg-paseo-gold/15 text-paseo-gold' : 'bg-paseo-blue/15 text-paseo-blue'
-        }`}
-      >
-        {r.kind}
-      </span>
-    ),
-  },
-  { key: 'type', header: 'סוג', render: (r) => r.type },
-  { key: 'publishDate', header: 'תאריך פרסום', render: (r) => formatDate(r.publishDate) },
-  { key: 'budget', header: 'תקציב', render: (r) => (r.budget ? shekel(r.budget) : '—') },
-  { key: 'leads', header: 'לידים', render: (r) => (r.leadsFromAd != null ? num(r.leadsFromAd) : '—') },
-  { key: 'status', header: 'סטטוס', render: (r) => <StatusBadge status={r.status} /> },
-]
 
 export function Marketing() {
   const d = usePaseo()
-  const mkt = marketingStats(d)
+  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<MarketingTask | null>(null)
+
+  const columns: Column<MarketingTask>[] = [
+    { key: 'task', header: 'משימה', render: (r) => <span className="font-medium">{r.task}</span> },
+    {
+      key: 'kind',
+      header: 'קטגוריה',
+      render: (r) => (
+        <span className={`text-xs px-2 py-0.5 rounded ${r.kind === 'ממומן' ? 'bg-paseo-gold/15 text-paseo-gold' : 'bg-paseo-blue/15 text-paseo-blue'}`}>
+          {r.kind}
+        </span>
+      ),
+    },
+    { key: 'type', header: 'סוג', render: (r) => r.type },
+    { key: 'publishDate', header: 'תאריך פרסום', render: (r) => formatDate(r.publishDate) },
+    { key: 'budget', header: 'תקציב', render: (r) => (r.budget ? shekel(r.budget) : '—') },
+    { key: 'status', header: 'סטטוס', render: (r) => <StatusBadge status={r.status} /> },
+    {
+      key: 'actions',
+      header: 'עריכה',
+      align: 'center',
+      render: (r) => (
+        <button
+          onClick={() => setEditing(r)}
+          className="inline-flex items-center justify-center rounded-lg p-1.5 text-paseo-muted hover:text-paseo-gold hover:bg-white/5 transition-colors"
+          title="עריכה / מחיקה"
+        >
+          <Pencil size={15} />
+        </button>
+      ),
+    },
+  ]
+
   const rows = [...d.marketing].sort((a, b) => b.publishDate.localeCompare(a.publishDate))
 
   return (
     <div>
-      <PageHeader title="שיווק" subtitle="כל פעילות שיווקית — תוכן וממומן" />
+      <PageHeader
+        title="שיווק"
+        subtitle="תוכן וממומן — הזנה ידנית"
+        action={<AddButton label="פעילות חדשה" onClick={() => setAdding(true)} />}
+      />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Widget title="פוסטים שבוצעו">
-          <Stat value={mkt.postsDone} label="החודש" tone="text-paseo-blue" />
-        </Widget>
-        <Widget title="רילסים שבוצעו">
-          <Stat value={mkt.reelsDone} label="החודש" tone="text-paseo-blue" />
-        </Widget>
-        <Widget title="קמפיינים פעילים">
-          <Stat value={mkt.activeCampaigns} label="כרגע" tone="text-paseo-green" />
-        </Widget>
-        <Widget title="לידים מפרסום">
-          <Stat value={num(mkt.adLeads)} label="סה״כ" tone="text-paseo-gold" />
-        </Widget>
-      </div>
+      <Modal open={adding} title="פעילות שיווקית חדשה" onClose={() => setAdding(false)}>
+        <MarketingForm onClose={() => setAdding(false)} />
+      </Modal>
+      <Modal open={!!editing} title="עריכת פעילות" onClose={() => setEditing(null)}>
+        {editing && <MarketingForm key={editing.id} initial={editing} onClose={() => setEditing(null)} />}
+      </Modal>
 
       <Widget title="כל הפעילות השיווקית">
-        <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} />
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.id}
+          empty="אין פעילות עדיין — הוסף פוסט שקיעה / רילס / קמפיין"
+        />
       </Widget>
     </div>
   )
