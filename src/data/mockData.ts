@@ -149,4 +149,5 @@ export const paseoData: PaseoData = {
   employees,
   suppliers,
   professionals: [],
+  reservations: [],
 }

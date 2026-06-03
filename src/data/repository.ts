@@ -9,6 +9,7 @@ import type {
   Supplier,
   Review,
   Professional,
+  Reservation,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -124,6 +125,16 @@ const mapReview = (r: any): Review => ({
   text: r.text ?? undefined,
 })
 
+const mapReservation = (r: any): Reservation => ({
+  id: String(r.id),
+  date: isoDay(r.date),
+  time: r.time || '',
+  name: r.name || '',
+  phone: r.phone || '',
+  size: numOr(r.size, 0),
+  status: r.status || '',
+})
+
 const mapProfessional = (r: any): Professional => ({
   id: String(r.id),
   name: r.name || '',
@@ -167,7 +178,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta, professionals] =
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations] =
       await withTimeout(
         Promise.all([
           supabase.from('crm_leads').select('*'),
@@ -177,6 +188,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           supabase.from('dash_reviews').select('*').order('date', { ascending: false }),
           supabase.from('dash_meta').select('key,value'),
           supabase.from('dash_professionals').select('*').eq('active', true),
+          supabase.from('dash_reservations').select('*').order('time', { ascending: true }),
         ]),
         LOAD_TIMEOUT_MS,
       )
@@ -217,6 +229,9 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
         professionals: professionals.error
           ? []
           : (professionals.data ?? []).map(mapProfessional),
+        reservations: reservations.error
+          ? []
+          : (reservations.data ?? []).map(mapReservation),
         googleRating: gRating,
         googleReviewCount: gCount,
       },

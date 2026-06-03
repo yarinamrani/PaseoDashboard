@@ -183,6 +183,17 @@ export interface Alert {
   link?: string // נתיב פנימי לקבוצה הרלוונטית
 }
 
+// --- אורחים / הזמנות (מאונטופו) ---
+export interface Reservation {
+  id: string
+  date: string // ISO
+  time: string // HH:MM
+  name: string
+  phone: string
+  size: number // מספר סועדים
+  status: string // approved/seated/done/deleted/canceled/invited/...
+}
+
 export interface PaseoData {
   sales: SalesRecord[]
   events: EventLead[]
@@ -192,6 +203,7 @@ export interface PaseoData {
   employees: Employee[]
   suppliers: Supplier[]
   professionals: Professional[]
+  reservations: Reservation[]
   // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
   googleRating?: number
   googleReviewCount?: number

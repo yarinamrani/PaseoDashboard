@@ -4,6 +4,7 @@ import {
   Gauge,
   TrendingUp,
   CalendarHeart,
+  CalendarClock,
   Star,
   Wrench,
   HardHat,
@@ -36,6 +37,7 @@ const sections: { title: string; items: NavItem[] }[] = [
     items: [
       { to: '/sales', label: 'מכירות', icon: TrendingUp },
       { to: '/events', label: 'אירועים', icon: CalendarHeart },
+      { to: '/guests', label: 'אורחים', icon: CalendarClock },
       { to: '/reviews', label: 'ביקורות', icon: Star },
       { to: '/maintenance', label: 'תחזוקה', icon: Wrench },
       { to: '/professionals', label: 'אנשי מקצוע', icon: HardHat },
