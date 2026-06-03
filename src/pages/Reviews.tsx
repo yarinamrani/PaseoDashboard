@@ -49,8 +49,13 @@ export function Reviews() {
   const d = usePaseo()
   const rating = googleRating(d)
   const monthReviews = reviewsThisMonth(d)
-  const rows = [...d.reviews].sort((a, b) => b.date.localeCompare(a.date))
-  const untreated = d.reviews.filter((r) => r.rating <= 3 && !r.handled).length
+  // מציגים רק ביקורות עדכניות (24 החודשים האחרונים) — מסתירים ישנות
+  const cutoff = new Date()
+  cutoff.setMonth(cutoff.getMonth() - 24)
+  const cutoffIso = cutoff.toISOString().slice(0, 10)
+  const recent = d.reviews.filter((r) => r.date >= cutoffIso)
+  const rows = [...recent].sort((a, b) => b.date.localeCompare(a.date))
+  const untreated = recent.filter((r) => r.rating <= 3 && !r.handled).length
 
   return (
     <div>
