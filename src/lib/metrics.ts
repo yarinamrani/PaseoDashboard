@@ -73,6 +73,47 @@ export function newLeads(d: PaseoData) {
   return d.events.filter((e) => e.status === 'ליד חדש')
 }
 
+// --- פילוח אמצעי תשלום (מדוח ה-Z של ביקום) ---
+const PAY_LABELS: Record<string, string> = {
+  credit: 'אשראי',
+  cash: 'מזומן',
+  bizns: 'ביזנס לוג׳יק',
+  multipass: 'מולטיפס',
+  wolt: 'וולט',
+  sodexo: 'סודקסו',
+  mega: 'מגה לאן',
+  employee: 'הפקדת עובדים',
+}
+
+export interface PaymentSlice {
+  method: string
+  label: string
+  amount: number
+  pct: number
+}
+
+// מסכם את אמצעי התשלום על פני כל ימי המכירות הטעונים
+export function paymentBreakdown(d: PaseoData): PaymentSlice[] {
+  const sums: Record<string, number> = {}
+  for (const s of d.sales) {
+    if (!s.payments) continue
+    for (const [k, v] of Object.entries(s.payments)) sums[k] = (sums[k] ?? 0) + (v || 0)
+  }
+  const total = Object.values(sums).reduce((a, b) => a + b, 0)
+  return Object.entries(sums)
+    .filter(([, v]) => v > 0)
+    .map(([method, amount]) => ({
+      method,
+      label: PAY_LABELS[method] ?? method,
+      amount,
+      pct: total ? (amount / total) * 100 : 0,
+    }))
+    .sort((a, b) => b.amount - a.amount)
+}
+
+// יעד מחזור חודשי (₪) — ניתן לכוונן
+export const MONTHLY_TARGET = 400000
+
 export function leadsByStatus(d: PaseoData) {
   const counts: Record<string, number> = {}
   for (const e of d.events) counts[e.status] = (counts[e.status] ?? 0) + 1

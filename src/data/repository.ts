@@ -44,6 +44,7 @@ const mapSales = (r: any): SalesRecord => ({
   avgPerDiner: r.avg_per_diner,
   avgTable: r.avg_table,
   notes: r.notes ?? undefined,
+  payments: r.payments ?? undefined,
 })
 
 // תרגום סטטוס ה-CRM (אנגלית) לסטטוס הדשבורד (עברית)

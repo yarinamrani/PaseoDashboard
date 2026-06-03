@@ -10,6 +10,7 @@ export interface SalesRecord {
   avgPerDiner: number // ממוצע לסועד (₪)
   avgTable: number // ממוצע שולחן (₪)
   notes?: string // הערות
+  payments?: Record<string, number> // פילוח אמצעי תשלום (אשראי/מזומן/וולט/...)
 }
 
 // --- קבוצה 2: אירועים ---
