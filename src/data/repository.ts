@@ -145,8 +145,10 @@ const mapEmployee = (r: any): Employee => ({
   id: String(r.id),
   name: r.name || '',
   role: r.role || '',
+  department: r.department || undefined,
   startDate: isoDay(r.start_date),
   status: (r.status as EmployeeStatus) || 'פעיל',
+  salary: r.salary != null ? Number(r.salary) : undefined,
 })
 
 const mapReservation = (r: any): Reservation => ({
@@ -445,8 +447,10 @@ export async function createEmployee(input: EmployeeInput): Promise<void> {
       id: newId('emp'),
       name: input.name,
       role: input.role,
+      department: input.department ?? null,
       start_date: input.startDate || null,
       status: input.status,
+      salary: input.salary ?? null,
     }),
   )
 }
@@ -454,8 +458,10 @@ export async function updateEmployee(id: string, patch: Partial<EmployeeInput>):
   const row: Record<string, unknown> = {}
   if (patch.name !== undefined) row.name = patch.name
   if (patch.role !== undefined) row.role = patch.role
+  if (patch.department !== undefined) row.department = patch.department || null
   if (patch.startDate !== undefined) row.start_date = patch.startDate || null
   if (patch.status !== undefined) row.status = patch.status
+  if (patch.salary !== undefined) row.salary = patch.salary ?? null
   await run(client().from('dash_employees').update(row).eq('id', id))
 }
 export async function deleteEmployee(id: string): Promise<void> {

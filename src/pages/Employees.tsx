@@ -8,26 +8,24 @@ import { AddButton } from '../components/AddButton'
 import { Modal } from '../components/Modal'
 import { EmployeeForm } from '../components/forms/EmployeeForm'
 import { usePaseo } from '../data/DataContext'
-import { formatDate, daysSince } from '../lib/dates'
+import { shekel } from '../lib/format'
 import type { Employee } from '../types'
-
-function tenure(startDate: string) {
-  const months = Math.floor(daysSince(startDate) / 30)
-  if (!Number.isFinite(months)) return '—'
-  if (months < 12) return `${months} חודשים`
-  return `${(months / 12).toFixed(1)} שנים`
-}
 
 export function Employees() {
   const d = usePaseo()
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<Employee | null>(null)
+  const [dept, setDept] = useState<string>('הכל')
 
   const columns: Column<Employee>[] = [
     { key: 'name', header: 'שם', render: (r) => <span className="font-medium">{r.name}</span> },
-    { key: 'role', header: 'תפקיד', render: (r) => r.role },
-    { key: 'startDate', header: 'תאריך התחלה', render: (r) => formatDate(r.startDate) },
-    { key: 'tenure', header: 'ותק', render: (r) => <span className="text-paseo-muted">{tenure(r.startDate)}</span> },
+    {
+      key: 'department',
+      header: 'מחלקה',
+      render: (r) => <span className="text-xs px-2 py-0.5 rounded bg-paseo-gold/15 text-paseo-gold">{r.department || '—'}</span>,
+    },
+    { key: 'role', header: 'תפקיד', render: (r) => <span className="text-paseo-muted">{r.role || '—'}</span> },
+    { key: 'salary', header: 'שכר', render: (r) => (r.salary ? <span className="font-bold text-paseo-text">{shekel(r.salary)}</span> : <span className="text-paseo-muted">—</span>) },
     { key: 'status', header: 'סטטוס', render: (r) => <StatusBadge status={r.status} /> },
     {
       key: 'actions',
@@ -45,15 +43,18 @@ export function Employees() {
     },
   ]
 
-  const active = d.employees.filter((e) => e.status === 'פעיל').length
-  const onLeave = d.employees.filter((e) => e.status === 'בחופשה').length
-  const rows = [...d.employees].sort((a, b) => a.status.localeCompare(b.status))
+  const depts = ['הכל', ...Array.from(new Set(d.employees.map((e) => e.department || 'כללי')))]
+  const filtered = d.employees.filter((e) => dept === 'הכל' || (e.department || 'כללי') === dept)
+  const rows = [...filtered].sort((a, b) => (a.department || '').localeCompare(b.department || '', 'he') || a.name.localeCompare(b.name, 'he'))
+
+  const active = filtered.filter((e) => e.status === 'פעיל').length
+  const totalSalary = filtered.reduce((a, e) => a + (e.salary ?? 0), 0)
 
   return (
     <div>
       <PageHeader
         title="עובדים"
-        subtitle="כוח האדם של פסאו"
+        subtitle={`${d.employees.length} עובדים · ${depts.length - 1} מחלקות`}
         action={<AddButton label="עובד חדש" onClick={() => setAdding(true)} />}
       />
 
@@ -65,24 +66,40 @@ export function Employees() {
       </Modal>
 
       <div className="grid grid-cols-3 gap-4 mb-6">
+        <Widget title="עובדים">
+          <Stat value={filtered.length} label={dept === 'הכל' ? 'סה״כ' : dept} tone="text-paseo-text" />
+        </Widget>
         <Widget title="פעילים">
-          <Stat value={active} label="עובדים" tone="text-paseo-green" />
+          <Stat value={active} label="כרגע" tone="text-paseo-green" />
         </Widget>
-        <Widget title="בחופשה">
-          <Stat value={onLeave} label="כרגע" tone="text-paseo-amber" />
-        </Widget>
-        <Widget title="סה״כ במערכת">
-          <Stat value={d.employees.length} label="עובדים" tone="text-paseo-text" />
+        <Widget title="סה״כ שכר">
+          <Stat value={totalSalary ? shekel(totalSalary) : '—'} label="לפי המוזן" tone="text-paseo-gold" />
         </Widget>
       </div>
 
+      <div className="flex flex-wrap gap-2 mb-4">
+        {depts.map((dp) => (
+          <button
+            key={dp}
+            onClick={() => setDept(dp)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              dept === dp
+                ? 'bg-paseo-gold text-paseo-bg'
+                : 'bg-paseo-card border border-paseo-border text-paseo-text/80 hover:bg-white/5'
+            }`}
+          >
+            {dp}
+            {dp !== 'הכל' && (
+              <span className="mr-1 opacity-70">
+                ({d.employees.filter((e) => (e.department || 'כללי') === dp).length})
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       <Widget title="רשימת עובדים">
-        <DataTable
-          columns={columns}
-          rows={rows}
-          rowKey={(r) => r.id}
-          empty="אין עובדים עדיין — הוסף את הצוות שלך"
-        />
+        <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} empty="אין עובדים — הוסף את הצוות שלך" />
       </Widget>
     </div>
   )

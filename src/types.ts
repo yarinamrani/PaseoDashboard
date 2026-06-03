@@ -126,12 +126,25 @@ export type EmployeeStatus = 'פעיל' | 'בחופשה' | 'סיים'
 
 export const EMPLOYEE_STATUSES: EmployeeStatus[] = ['פעיל', 'בחופשה', 'סיים']
 
+export const DEPARTMENTS = [
+  'מטבח',
+  'מטבח סושי',
+  'שטיפה',
+  'ניהול מטבח',
+  'בר',
+  'מלצרים',
+  'אירוח',
+  'כללי',
+] as const
+
 export interface Employee {
   id: string
   name: string // שם
   role: string // תפקיד
+  department?: string // מחלקה
   startDate: string // תאריך התחלה (ISO)
   status: EmployeeStatus // סטטוס
+  salary?: number // שכר (₪)
 }
 
 // --- קבוצה 7: ספקים ---
