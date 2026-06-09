@@ -13,6 +13,7 @@ import {
   Truck,
   Zap,
   CalendarCheck,
+  X,
 } from 'lucide-react'
 import { useDataSource } from '../data/DataContext'
 
@@ -49,11 +50,26 @@ const sections: { title: string; items: NavItem[] }[] = [
   },
 ]
 
-export function Sidebar({ alertCount }: { alertCount: number }) {
+export function Sidebar({
+  alertCount,
+  open = false,
+  onClose,
+}: {
+  alertCount: number
+  open?: boolean
+  onClose?: () => void
+}) {
   const { source } = useDataSource()
   return (
-    <aside className="w-60 shrink-0 bg-paseo-surface border-l border-paseo-border flex flex-col">
-      <div className="px-5 py-5 border-b border-paseo-border">
+    <>
+      {/* רקע כהה בנייד כשהמגירה פתוחה */}
+      {open && <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={onClose} />}
+      <aside
+        className={`fixed inset-y-0 right-0 z-50 w-60 bg-paseo-surface border-l border-paseo-border flex flex-col transform transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+          open ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+      <div className="px-5 py-5 border-b border-paseo-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-lg bg-paseo-gold/15 grid place-items-center text-paseo-gold font-black text-lg">
             פ
@@ -63,6 +79,9 @@ export function Sidebar({ alertCount }: { alertCount: number }) {
             <div className="text-xs text-paseo-muted">ניהול שוטף</div>
           </div>
         </div>
+        <button onClick={onClose} className="md:hidden p-1 text-paseo-muted hover:text-paseo-text" aria-label="סגירה">
+          <X size={18} />
+        </button>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3">
@@ -79,6 +98,7 @@ export function Sidebar({ alertCount }: { alertCount: number }) {
                   key={item.to}
                   to={item.to}
                   end={item.to === '/'}
+                  onClick={onClose}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-5 py-2 text-sm transition-colors ${
                       isActive
@@ -104,6 +124,7 @@ export function Sidebar({ alertCount }: { alertCount: number }) {
       <div className="px-5 py-3 border-t border-paseo-border text-[11px] text-paseo-muted">
         {source === 'supabase' ? 'מחובר ל-PaseoCRM' : 'נתוני דמה'} · MVP
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }
