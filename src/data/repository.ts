@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient'
 import { paseoData } from './mockData'
+import { dayKey, weekKey } from '../lib/dates'
 import type {
   PaseoData,
   SalesRecord,
@@ -13,6 +14,8 @@ import type {
   Professional,
   Reservation,
   PayrollEntry,
+  Task,
+  TaskFrequency,
   MarketingTask,
   MarketingKind,
   MarketingType,
@@ -153,6 +156,15 @@ const mapEmployee = (r: any): Employee => ({
   hourlyRate: r.hourly_rate != null ? Number(r.hourly_rate) : undefined,
 })
 
+const mapTask = (r: any): Task => ({
+  id: String(r.id),
+  title: r.title || '',
+  category: r.category || '',
+  frequency: (r.frequency as TaskFrequency) || 'daily',
+  role: r.role || 'כללי',
+  sort: numOr(r.sort, 0),
+})
+
 const mapPayroll = (r: any): PayrollEntry => ({
   employeeId: String(r.employee_id),
   name: r.name || '',
@@ -213,7 +225,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll] =
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll, tasks, taskLog] =
       await withTimeout(
         Promise.all([
           supabase.from('crm_leads').select('*'),
@@ -227,6 +239,8 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           supabase.from('dash_marketing').select('*').order('publish_date', { ascending: false }),
           supabase.from('dash_employees').select('*'),
           supabase.from('dash_payroll').select('*'),
+          supabase.from('dash_tasks').select('*').eq('active', true).order('sort'),
+          supabase.from('dash_task_log').select('id').eq('done', true).in('period_key', [dayKey(), weekKey()]),
         ]),
         LOAD_TIMEOUT_MS,
       )
@@ -262,6 +276,8 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           ? []
           : (reservations.data ?? []).map(mapReservation),
         payroll: payroll.error ? [] : (payroll.data ?? []).map(mapPayroll),
+        tasks: tasks.error ? [] : (tasks.data ?? []).map(mapTask),
+        taskDone: taskLog.error ? [] : (taskLog.data ?? []).map((r: any) => String(r.id)),
         googleRating: gRating,
         googleReviewCount: gCount,
       },
@@ -479,4 +495,26 @@ export async function updateEmployee(id: string, patch: Partial<EmployeeInput>):
 }
 export async function deleteEmployee(id: string): Promise<void> {
   await run(client().from('dash_employees').delete().eq('id', id))
+}
+
+// --- סימון ביצוע משימה לתקופה (יומי/שבועי) ---
+export async function setTaskDone(
+  taskId: string,
+  periodKey: string,
+  done: boolean,
+): Promise<void> {
+  const id = `${taskId}__${periodKey}`
+  if (done) {
+    await run(
+      client().from('dash_task_log').upsert({
+        id,
+        task_id: taskId,
+        period_key: periodKey,
+        done: true,
+        done_at: new Date().toISOString(),
+      }),
+    )
+  } else {
+    await run(client().from('dash_task_log').delete().eq('id', id))
+  }
 }

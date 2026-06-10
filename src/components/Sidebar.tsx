@@ -13,6 +13,7 @@ import {
   Truck,
   Zap,
   CalendarCheck,
+  ListChecks,
   X,
 } from 'lucide-react'
 import { useDataSource } from '../data/DataContext'
@@ -44,6 +45,7 @@ const sections: { title: string; items: NavItem[] }[] = [
       { to: '/reviews', label: 'ביקורות', icon: Star },
       { to: '/maintenance', label: 'תחזוקה', icon: Wrench },
       { to: '/professionals', label: 'אנשי מקצוע', icon: HardHat },
+      { to: '/tasks', label: 'משימות', icon: ListChecks },
       { to: '/employees', label: 'עובדים', icon: Users },
       { to: '/suppliers', label: 'ספקים', icon: Truck },
     ],

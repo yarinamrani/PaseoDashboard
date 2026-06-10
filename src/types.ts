@@ -150,6 +150,17 @@ export interface Employee {
 
 export const VENUES = ['פסאו', 'אומינו'] as const
 
+// משימות קבועות (יומיות/שבועיות) לטבחים ולשוטפים
+export type TaskFrequency = 'daily' | 'weekly'
+export interface Task {
+  id: string
+  title: string
+  category: string
+  frequency: TaskFrequency
+  role: string // שטיפה / טבח / כללי
+  sort: number
+}
+
 // שעות עבודה של עובד בחודש (מדוחות השעון) — לחישוב שכר ולהיסטוריה
 export interface PayrollEntry {
   employeeId: string
@@ -235,6 +246,8 @@ export interface PaseoData {
   professionals: Professional[]
   reservations: Reservation[]
   payroll: PayrollEntry[]
+  tasks: Task[]
+  taskDone: string[] // מזהי לוג שבוצעו לתקופה הנוכחית: `${taskId}__${periodKey}`
   // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
   googleRating?: number
   googleReviewCount?: number

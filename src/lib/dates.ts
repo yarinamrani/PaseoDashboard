@@ -83,3 +83,14 @@ export function formatDate(isoDate: string) {
   const d = safeParse(isoDate)
   return d ? HE_DATE.format(d) : '—'
 }
+
+// מפתחות תקופה לסימון ביצוע משימות (לפי שעון מקומי = ישראל אצל המשתמש)
+export function dayKey(): string {
+  return new Date().toLocaleDateString('en-CA') // YYYY-MM-DD
+}
+export function weekKey(): string {
+  const d = new Date()
+  const sun = new Date(d)
+  sun.setDate(d.getDate() - d.getDay()) // ראשון של השבוע הנוכחי
+  return sun.toLocaleDateString('en-CA')
+}
