@@ -114,6 +114,7 @@ export interface Review {
   handled: boolean // טופל
   owner: string // אחראי
   author?: string // שם הכותב/האורח
+  phone?: string // טלפון האורח (מאונטופו) — לפנייה מהירה
   text?: string
 }
 

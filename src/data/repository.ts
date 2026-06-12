@@ -151,6 +151,7 @@ const mapReview = (r: any): Review => ({
   handled: !!r.handled,
   owner: r.owner || '',
   author: r.author ?? undefined,
+  phone: r.phone ?? undefined,
   text: r.text ?? undefined,
 })
 

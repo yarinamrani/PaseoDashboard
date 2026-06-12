@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, Check } from 'lucide-react'
+import { AlertTriangle, Check, MessageCircle, ExternalLink } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
@@ -8,6 +8,24 @@ import { setReviewHandled } from '../data/repository'
 import { GOOGLE_TARGET } from '../lib/metrics'
 import { formatDate } from '../lib/dates'
 import type { Review } from '../types'
+
+// קישור וואטסאפ מהיר עם הודעת פנייה מוכנה (פיצוי + בקשה לעדכן/להסיר ביקורת)
+function whatsappLink(r: Review): string | null {
+  if (!r.phone) return null
+  const digits = r.phone.replace(/\D/g, '')
+  const intl = digits.startsWith('0') ? '972' + digits.slice(1) : digits
+  if (intl.length < 11) return null
+  const name = r.author?.trim() || ''
+  const msg =
+    `שלום ${name},`.trim() +
+    ' כאן צוות מסעדת פסאו 🙏 ראינו את המשוב שהשארת ואנחנו מאוד מצטערים שהחוויה לא הייתה מושלמת.' +
+    ' חשוב לנו לתקן ולפצות אותך — נשמח לדבר ולמצוא דרך שתחזיר/י אלינו חוויה טובה.'
+  return `https://wa.me/${intl}?text=${encodeURIComponent(msg)}`
+}
+
+// בגוגל אין ערוץ פנייה פרטי — המבקרים אנונימיים. הערוץ הרשמי היחיד הוא מענה
+// ציבורי דרך Google Business Profile (שם אפשר גם לבקש מהלקוח לעדכן/להסיר).
+const GOOGLE_REPLY_URL = 'https://business.google.com/reviews'
 
 function Stars({ rating }: { rating: number }) {
   return (
@@ -34,6 +52,7 @@ const columns: Column<Review>[] = [
       <span className={`text-xs px-2 py-0.5 rounded ${platformColor[r.platform] ?? 'bg-white/5'}`}>{r.platform}</span>
     ),
   },
+  { key: 'author', header: 'שם', render: (r) => <span className="text-paseo-text/90">{r.author || '—'}</span> },
   { key: 'rating', header: 'דירוג', render: (r) => <Stars rating={r.rating} /> },
   { key: 'text', header: 'תוכן', render: (r) => <span className="text-paseo-muted">{r.text ?? '—'}</span> },
   {
@@ -74,8 +93,8 @@ export function Reviews() {
   const googleRatingVal = d.googleRating ?? avg(google)
   const ontopoRatingVal = avg(ontopo)
 
-  // חריגים לטיפול: סקרי אונטופו עם דירוג נמוך (1-3) שעדיין לא טופלו, מהחדש לישן
-  const anomalies = ontopo
+  // חריגים לטיפול: ביקורות שליליות (1-3★) שטרם טופלו — אונטופו + גוגל, מהחדש לישן
+  const anomalies = recent
     .filter((r) => r.rating <= 3 && !r.handled)
     .sort((a, b) => b.date.localeCompare(a.date))
 
@@ -139,33 +158,69 @@ export function Reviews() {
             <AlertTriangle size={18} className="text-paseo-red shrink-0" />
             <h2 className="font-bold text-paseo-text">חריגים לטיפול מול הלקוחה</h2>
             <span className="text-xs font-bold bg-paseo-red text-white rounded-full px-2 py-0.5">{anomalies.length}</span>
-            <span className="text-xs text-paseo-muted mr-auto">סקרי אונטופו 1-3★ שטרם טופלו</span>
+            <span className="text-xs text-paseo-muted mr-auto">ביקורות 1-3★ שטרם טופלו · אונטופו + גוגל</span>
           </div>
           <div className="space-y-2">
-            {anomalies.map((r) => (
-              <div
-                key={r.id}
-                className="flex items-start gap-3 rounded-xl border border-paseo-border bg-paseo-surface p-3"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="font-medium text-paseo-text">{r.author || 'אורח/ת'}</span>
-                    <Stars rating={r.rating} />
-                    <span className="text-xs text-paseo-muted">{formatDate(r.date)}</span>
-                  </div>
-                  {r.text && <p className="text-sm text-paseo-text/80 leading-relaxed">{r.text}</p>}
-                </div>
-                <button
-                  onClick={() => markHandled(r)}
-                  disabled={isMock || busy === r.id}
-                  className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-paseo-green/15 px-3 py-1.5 text-xs font-medium text-paseo-green hover:bg-paseo-green/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  title="סמן שטופל מול הלקוחה"
+            {anomalies.map((r) => {
+              const wa = whatsappLink(r)
+              const isGoogle = r.platform === 'Google'
+              return (
+                <div
+                  key={r.id}
+                  className="flex items-start gap-3 rounded-xl border border-paseo-border bg-paseo-surface p-3"
                 >
-                  <Check size={14} />
-                  {busy === r.id ? '…' : 'טופל'}
-                </button>
-              </div>
-            ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="font-medium text-paseo-text">{r.author || 'אורח/ת'}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${platformColor[r.platform] ?? 'bg-white/5'}`}>{r.platform}</span>
+                      <Stars rating={r.rating} />
+                      <span className="text-xs text-paseo-muted">{formatDate(r.date)}</span>
+                    </div>
+                    {r.text && <p className="text-sm text-paseo-text/80 leading-relaxed">{r.text}</p>}
+                    {isGoogle && (
+                      <p className="text-[11px] text-paseo-muted mt-1">
+                        בגוגל אין פנייה פרטית — המענה הוא ציבורי דרך Google Business (אפשר לבקש שם עדכון/הסרה).
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 flex flex-col gap-1.5">
+                    {wa && (
+                      <a
+                        href={wa}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-paseo-green/15 px-3 py-1.5 text-xs font-medium text-paseo-green hover:bg-paseo-green/25 transition-colors"
+                        title={`וואטסאפ ל-${r.phone}`}
+                      >
+                        <MessageCircle size={14} />
+                        וואטסאפ
+                      </a>
+                    )}
+                    {isGoogle && (
+                      <a
+                        href={GOOGLE_REPLY_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-paseo-blue/15 px-3 py-1.5 text-xs font-medium text-paseo-blue hover:bg-paseo-blue/25 transition-colors"
+                        title="מענה ציבורי בגוגל ביזנס"
+                      >
+                        <ExternalLink size={14} />
+                        מענה בגוגל
+                      </a>
+                    )}
+                    <button
+                      onClick={() => markHandled(r)}
+                      disabled={isMock || busy === r.id}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-paseo-muted hover:text-paseo-green hover:bg-paseo-green/15 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="סמן שטופל מול הלקוחה"
+                    >
+                      <Check size={14} />
+                      {busy === r.id ? '…' : 'טופל'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
           {isMock && (
             <p className="text-xs text-paseo-amber mt-3">מצב דמה — הסימון מושבת. התחבר כדי לסמן טיפול.</p>
