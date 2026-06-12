@@ -12,6 +12,7 @@ import {
   HardHat,
   Users,
   Truck,
+  ShoppingCart,
   Zap,
   CalendarCheck,
   ListChecks,
@@ -50,6 +51,7 @@ const sections: { title: string; items: NavItem[] }[] = [
       { to: '/tasks', label: 'משימות', icon: ListChecks },
       { to: '/employees', label: 'עובדים', icon: Users },
       { to: '/suppliers', label: 'ספקים', icon: Truck },
+      { to: '/purchasing', label: 'תכנון רכש', icon: ShoppingCart },
     ],
   },
 ]
