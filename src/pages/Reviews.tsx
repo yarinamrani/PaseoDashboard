@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { AlertTriangle, Check } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
-import { usePaseo } from '../data/DataContext'
+import { usePaseo, useRefreshPaseo, useDataSource } from '../data/DataContext'
+import { setReviewHandled } from '../data/repository'
 import { GOOGLE_TARGET } from '../lib/metrics'
 import { formatDate } from '../lib/dates'
 import type { Review } from '../types'
@@ -54,7 +56,11 @@ type Filter = 'הכל' | 'Google' | 'OnTopo'
 
 export function Reviews() {
   const d = usePaseo()
+  const refresh = useRefreshPaseo()
+  const { source } = useDataSource()
+  const isMock = source === 'mock'
   const [filter, setFilter] = useState<Filter>('הכל')
+  const [busy, setBusy] = useState<string | null>(null)
 
   // רק ביקורות עדכניות (24 החודשים האחרונים)
   const cutoff = new Date()
@@ -68,8 +74,12 @@ export function Reviews() {
   const googleRatingVal = d.googleRating ?? avg(google)
   const ontopoRatingVal = avg(ontopo)
 
-  const filtered =
-    filter === 'Google' ? google : filter === 'OnTopo' ? ontopo : recent
+  // חריגים לטיפול: סקרי אונטופו עם דירוג נמוך (1-3) שעדיין לא טופלו, מהחדש לישן
+  const anomalies = ontopo
+    .filter((r) => r.rating <= 3 && !r.handled)
+    .sort((a, b) => b.date.localeCompare(a.date))
+
+  const filtered = filter === 'Google' ? google : filter === 'OnTopo' ? ontopo : recent
   const rows = [...filtered].sort((a, b) => b.date.localeCompare(a.date))
   const untreated = filtered.filter((r) => r.rating <= 3 && !r.handled).length
 
@@ -79,9 +89,21 @@ export function Reviews() {
     { key: 'OnTopo', count: ontopo.length },
   ]
 
+  async function markHandled(r: Review) {
+    if (isMock || busy) return
+    setBusy(r.id)
+    try {
+      await setReviewHandled(r.id, true)
+      await refresh()
+    } catch {
+      /* ignore */
+    }
+    setBusy(null)
+  }
+
   return (
     <div>
-      <PageHeader title="ביקורות" subtitle="מפולג לפי Google ו-OnTopo" />
+      <PageHeader title="ביקורות" subtitle="מפולג לפי Google ו-OnTopo · מתעדכן כל 3 שעות" />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Widget title="דירוג גוגל">
@@ -109,6 +131,47 @@ export function Reviews() {
           <Stat value={untreated} label="1-3★ לא טופלו" tone={untreated ? 'text-paseo-red' : 'text-paseo-green'} />
         </Widget>
       </div>
+
+      {/* חריגים לטיפול מול הלקוחה — סקרי אונטופו שליליים שטרם טופלו */}
+      {anomalies.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-paseo-red/30 bg-paseo-red/[0.06] p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle size={18} className="text-paseo-red shrink-0" />
+            <h2 className="font-bold text-paseo-text">חריגים לטיפול מול הלקוחה</h2>
+            <span className="text-xs font-bold bg-paseo-red text-white rounded-full px-2 py-0.5">{anomalies.length}</span>
+            <span className="text-xs text-paseo-muted mr-auto">סקרי אונטופו 1-3★ שטרם טופלו</span>
+          </div>
+          <div className="space-y-2">
+            {anomalies.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-start gap-3 rounded-xl border border-paseo-border bg-paseo-surface p-3"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="font-medium text-paseo-text">{r.author || 'אורח/ת'}</span>
+                    <Stars rating={r.rating} />
+                    <span className="text-xs text-paseo-muted">{formatDate(r.date)}</span>
+                  </div>
+                  {r.text && <p className="text-sm text-paseo-text/80 leading-relaxed">{r.text}</p>}
+                </div>
+                <button
+                  onClick={() => markHandled(r)}
+                  disabled={isMock || busy === r.id}
+                  className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-paseo-green/15 px-3 py-1.5 text-xs font-medium text-paseo-green hover:bg-paseo-green/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="סמן שטופל מול הלקוחה"
+                >
+                  <Check size={14} />
+                  {busy === r.id ? '…' : 'טופל'}
+                </button>
+              </div>
+            ))}
+          </div>
+          {isMock && (
+            <p className="text-xs text-paseo-amber mt-3">מצב דמה — הסימון מושבת. התחבר כדי לסמן טיפול.</p>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 mb-4">
         {filters.map((f) => (

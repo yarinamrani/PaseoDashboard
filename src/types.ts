@@ -86,6 +86,7 @@ export interface Review {
   rating: number // דירוג (1-5)
   handled: boolean // טופל
   owner: string // אחראי
+  author?: string // שם הכותב/האורח
   text?: string
 }
 

@@ -132,6 +132,7 @@ const mapReview = (r: any): Review => ({
   rating: numOr(r.rating, 0),
   handled: !!r.handled,
   owner: r.owner || '',
+  author: r.author ?? undefined,
   text: r.text ?? undefined,
 })
 
@@ -318,6 +319,31 @@ export async function createSales(input: SalesInput): Promise<void> {
         notes: input.notes ?? null,
       }),
   )
+}
+
+export async function updateSales(id: string, input: SalesInput): Promise<void> {
+  await run(
+    client()
+      .from('dash_sales')
+      .update({
+        date: input.date,
+        revenue: input.revenue,
+        diners: input.diners,
+        avg_per_diner: input.avgPerDiner,
+        avg_table: input.avgTable,
+        notes: input.notes ?? null,
+      })
+      .eq('id', id),
+  )
+}
+
+export async function deleteSales(id: string): Promise<void> {
+  await run(client().from('dash_sales').delete().eq('id', id))
+}
+
+// --- ביקורות: סימון ביקורת כטופלה (לטיפול מול הלקוח) ---
+export async function setReviewHandled(id: string, handled: boolean): Promise<void> {
+  await run(client().from('dash_reviews').update({ handled }).eq('id', id))
 }
 
 // --- אירועים / לידים (כתיבה ל-crm_leads האמיתי) ---
