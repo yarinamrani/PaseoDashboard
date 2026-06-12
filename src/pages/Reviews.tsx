@@ -1,23 +1,22 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AlertTriangle, Check, MessageCircle, ExternalLink } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
 import { usePaseo, useRefreshPaseo, useDataSource } from '../data/DataContext'
 import { setReviewHandled } from '../data/repository'
+import { buildPhoneIndex, matchPhone, type PhoneMatch } from '../lib/contacts'
 import { GOOGLE_TARGET } from '../lib/metrics'
 import { formatDate } from '../lib/dates'
 import type { Review } from '../types'
 
 // קישור וואטסאפ מהיר עם הודעת פנייה מוכנה (פיצוי + בקשה לעדכן/להסיר ביקורת)
-function whatsappLink(r: Review): string | null {
-  if (!r.phone) return null
-  const digits = r.phone.replace(/\D/g, '')
+function whatsappLink(phone: string, name?: string): string | null {
+  const digits = phone.replace(/\D/g, '')
   const intl = digits.startsWith('0') ? '972' + digits.slice(1) : digits
   if (intl.length < 11) return null
-  const name = r.author?.trim() || ''
   const msg =
-    `שלום ${name},`.trim() +
+    `שלום ${name?.trim() || ''},`.trim() +
     ' כאן צוות מסעדת פסאו 🙏 ראינו את המשוב שהשארת ואנחנו מאוד מצטערים שהחוויה לא הייתה מושלמת.' +
     ' חשוב לנו לתקן ולפצות אותך — נשמח לדבר ולמצוא דרך שתחזיר/י אלינו חוויה טובה.'
   return `https://wa.me/${intl}?text=${encodeURIComponent(msg)}`
@@ -80,6 +79,8 @@ export function Reviews() {
   const isMock = source === 'mock'
   const [filter, setFilter] = useState<Filter>('הכל')
   const [busy, setBusy] = useState<string | null>(null)
+  // אינדקס שם→טלפון מאונטופו (סקרים + הזמנות) — להצלבה עם ביקורות גוגל
+  const phoneIdx = useMemo(() => buildPhoneIndex(d), [d])
 
   // רק ביקורות עדכניות (24 החודשים האחרונים)
   const cutoff = new Date()
@@ -162,7 +163,12 @@ export function Reviews() {
           </div>
           <div className="space-y-2">
             {anomalies.map((r) => {
-              const wa = whatsappLink(r)
+              const direct: PhoneMatch | null = r.phone
+                ? { phone: r.phone, sourceName: r.author || '', kind: 'exact' }
+                : null
+              const match = direct ?? matchPhone(r.author, phoneIdx)
+              const wa = match ? whatsappLink(match.phone, r.author) : null
+              const viaCrossRef = !!match && !r.phone // טלפון שנמצא בהצלבה (לא ישירות מהביקורת)
               const isGoogle = r.platform === 'Google'
               return (
                 <div
@@ -177,7 +183,13 @@ export function Reviews() {
                       <span className="text-xs text-paseo-muted">{formatDate(r.date)}</span>
                     </div>
                     {r.text && <p className="text-sm text-paseo-text/80 leading-relaxed">{r.text}</p>}
-                    {isGoogle && (
+                    {viaCrossRef && match && (
+                      <p className="text-[11px] text-paseo-blue/90 mt-1">
+                        📞 נמצא טלפון דרך אונטופו: {match.sourceName}
+                        {match.kind === 'surname' ? ' · ייתכן קרוב/ת משפחה — כדאי לוודא' : ''}
+                      </p>
+                    )}
+                    {isGoogle && !match && (
                       <p className="text-[11px] text-paseo-muted mt-1">
                         בגוגל אין פנייה פרטית — המענה הוא ציבורי דרך Google Business (אפשר לבקש שם עדכון/הסרה).
                       </p>

@@ -1,0 +1,21 @@
+{
+  "name": "פסאו · דשבורד ניהולי",
+  "short_name": "פסאו",
+  "description": "דשבורד ניהולי למסעדת פסאו — מכירות, ביקורות, משימות ועוד",
+  "start_url": "/PaseoDashboard/",
+  "scope": "/PaseoDashboard/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "lang": "he",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/PaseoDashboard/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
