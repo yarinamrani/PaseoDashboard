@@ -1,11 +1,10 @@
-import React, { useState } from 'react'
+import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import './index.css'
-import { isSupabaseConfigured } from './data/supabaseClient'
-import { AuthProvider, useAuth } from './data/AuthContext'
+import { AuthProvider } from './data/AuthContext'
+import { AuthGate } from './components/AuthGate'
 import { DataProvider } from './data/DataContext'
-import { Login } from './pages/Login'
 import { Layout } from './components/Layout'
 import { OwnerControl } from './pages/OwnerControl'
 import { CeoDashboard } from './pages/CeoDashboard'
@@ -48,41 +47,16 @@ const router = createBrowserRouter([
   basename: import.meta.env.BASE_URL.replace(/\/$/, '') || '/',
 })
 
-function Spinner() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-paseo-bg text-paseo-muted">
-      <div className="h-8 w-8 rounded-full border-2 border-paseo-gold border-t-transparent animate-spin" />
-    </div>
-  )
-}
-
-// שער כניסה: ללא Supabase מוגדר -> ישר לדשבורד (דמה). עם Supabase -> דורש התחברות,
-// עם אפשרות "מצב דמה" שעוקף את ההתחברות ומשתמש בנתוני דמה בלבד.
-function Gate() {
-  const { session, loading } = useAuth()
-  const [demo, setDemo] = useState(false)
-
-  if (!isSupabaseConfigured) {
-    return (
-      <DataProvider>
-        <RouterProvider router={router} />
-      </DataProvider>
-    )
-  }
-  if (loading) return <Spinner />
-  if (!session && !demo) return <Login onDemo={() => setDemo(true)} />
-
-  return (
-    <DataProvider demo={demo}>
-      <RouterProvider router={router} />
-    </DataProvider>
-  )
-}
-
+// שכבת הנתונים (DataProvider) ממוקמת בתוך ה-AuthGate בכוונה: היא נטענת ומריצה
+// שליפות רק כשיש session מאומת, כך שהקריאות יוצאות עם ה-role 'authenticated'.
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
+  <StrictMode>
     <AuthProvider>
-      <Gate />
+      <AuthGate>
+        <DataProvider>
+          <RouterProvider router={router} />
+        </DataProvider>
+      </AuthGate>
     </AuthProvider>
-  </React.StrictMode>,
+  </StrictMode>,
 )

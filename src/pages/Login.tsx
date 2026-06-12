@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { LogIn, FlaskConical } from 'lucide-react'
 import { useAuth } from '../data/AuthContext'
 
-export function Login({ onDemo }: { onDemo: () => void }) {
+export function Login({ onDemo }: { onDemo?: () => void }) {
   const { signIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -73,13 +73,15 @@ export function Login({ onDemo }: { onDemo: () => void }) {
           </button>
         </form>
 
-        <button
-          onClick={onDemo}
-          className="mt-4 flex w-full items-center justify-center gap-1.5 text-xs text-paseo-muted hover:text-paseo-text transition-colors"
-        >
-          <FlaskConical size={12} />
-          המשך במצב דמה (ללא נתונים אמיתיים)
-        </button>
+        {onDemo && (
+          <button
+            onClick={onDemo}
+            className="mt-4 flex w-full items-center justify-center gap-1.5 text-xs text-paseo-muted hover:text-paseo-text transition-colors"
+          >
+            <FlaskConical size={12} />
+            המשך במצב דמה (ללא נתונים אמיתיים)
+          </button>
+        )}
       </div>
     </div>
   )
