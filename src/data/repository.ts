@@ -20,6 +20,8 @@ import type {
   MarketingKind,
   MarketingType,
   MarketingStatus,
+  DishSale,
+  HourlyBucket,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -58,6 +60,22 @@ const mapSales = (r: any): SalesRecord => ({
   avgTable: r.avg_table,
   notes: r.notes ?? undefined,
   payments: r.payments ?? undefined,
+  cancellations: r.cancellations ?? undefined,
+})
+
+const mapDish = (r: any): DishSale => ({
+  dishName: r.dish_name ?? '',
+  category: r.category ?? '',
+  department: r.department ?? '',
+  quantity: Number(r.quantity ?? 0),
+  income: Number(r.income ?? 0),
+})
+
+const mapHourly = (r: any): HourlyBucket => ({
+  hour: Number(r.hour ?? 0),
+  diners: Number(r.diners ?? 0),
+  orders: Number(r.orders ?? 0),
+  revenue: Number(r.revenue ?? 0),
 })
 
 // תרגום סטטוס ה-CRM (אנגלית) לסטטוס הדשבורד (עברית)
@@ -226,7 +244,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll, tasks, taskLog] =
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll, tasks, taskLog, dishes, hourly] =
       await withTimeout(
         Promise.all([
           supabase.from('crm_leads').select('*'),
@@ -242,6 +260,8 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           supabase.from('dash_payroll').select('*'),
           supabase.from('dash_tasks').select('*').eq('active', true).order('sort'),
           supabase.from('dash_task_log').select('id').eq('done', true).in('period_key', [dayKey(), weekKey()]),
+          supabase.from('dash_dishes').select('*').order('quantity', { ascending: false }),
+          supabase.from('dash_hourly').select('*').order('hour', { ascending: true }),
         ]),
         LOAD_TIMEOUT_MS,
       )
@@ -251,6 +271,10 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
     for (const m of meta.data ?? []) metaMap[m.key] = m.value
     const gRating = metaMap.google_rating ? Number(metaMap.google_rating) : undefined
     const gCount = metaMap.google_review_count ? Number(metaMap.google_review_count) : undefined
+    const dishesPeriod =
+      metaMap.dishes_period_start && metaMap.dishes_period_end
+        ? { start: metaMap.dishes_period_start, end: metaMap.dishes_period_end }
+        : undefined
 
     // crm_leads הוא המקור הקריטי; אם הוא נכשל — נפילה מלאה ל-Mock
     if (events.error) throw events.error
@@ -279,8 +303,11 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
         payroll: payroll.error ? [] : (payroll.data ?? []).map(mapPayroll),
         tasks: tasks.error ? [] : (tasks.data ?? []).map(mapTask),
         taskDone: taskLog.error ? [] : (taskLog.data ?? []).map((r: any) => String(r.id)),
+        dishes: dishes.error ? [] : (dishes.data ?? []).map(mapDish),
+        hourly: hourly.error ? [] : (hourly.data ?? []).map(mapHourly),
         googleRating: gRating,
         googleReviewCount: gCount,
+        dishesPeriod,
       },
     }
   } catch (e) {

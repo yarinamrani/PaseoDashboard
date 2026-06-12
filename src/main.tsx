@@ -11,6 +11,7 @@ import { CeoDashboard } from './pages/CeoDashboard'
 import { WeeklyKpi } from './pages/WeeklyKpi'
 import { Automations } from './pages/Automations'
 import { Sales } from './pages/Sales'
+import { Menu } from './pages/Menu'
 import { Events } from './pages/Events'
 import { Guests } from './pages/Guests'
 import { Marketing } from './pages/Marketing'
@@ -31,6 +32,7 @@ const router = createBrowserRouter([
       { path: 'weekly', element: <WeeklyKpi /> },
       { path: 'automations', element: <Automations /> },
       { path: 'sales', element: <Sales /> },
+      { path: 'menu', element: <Menu /> },
       { path: 'events', element: <Events /> },
       { path: 'guests', element: <Guests /> },
       { path: 'marketing', element: <Marketing /> },

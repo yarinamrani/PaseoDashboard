@@ -11,6 +11,33 @@ export interface SalesRecord {
   avgTable: number // ממוצע שולחן (₪)
   notes?: string // הערות
   payments?: Record<string, number> // פילוח אמצעי תשלום (אשראי/מזומן/וולט/...)
+  cancellations?: Cancellations // ביטולים/הנחות/שינויי מחיר (₪) — מדד בקרה
+}
+
+// ביטולים, הנחות ושינויי מחיר ליום (₪) — מתוך אלפרד
+export interface Cancellations {
+  cancelOrder: number // ביטולי הזמנה
+  cancelItem: number // ביטולי פריט
+  itemDiscount: number // הנחות פריט
+  itemPriceChange: number // שינויי מחיר
+  other: number // אחר
+}
+
+// מכירת מנה (item-level) — snapshot מאלפרד לטווח הנמשך
+export interface DishSale {
+  dishName: string
+  category: string
+  department: string // kitchen / bar / other
+  quantity: number // כמות שנמכרה
+  income: number // הכנסה (₪)
+}
+
+// פילוח לפי שעה (סכום הטווח)
+export interface HourlyBucket {
+  hour: number // 0-23
+  diners: number
+  orders: number
+  revenue: number
 }
 
 // --- קבוצה 2: אירועים ---
@@ -249,7 +276,10 @@ export interface PaseoData {
   payroll: PayrollEntry[]
   tasks: Task[]
   taskDone: string[] // מזהי לוג שבוצעו לתקופה הנוכחית: `${taskId}__${periodKey}`
+  dishes: DishSale[] // מכירות ברמת המנה (30 הימים האחרונים)
+  hourly: HourlyBucket[] // פילוח לפי שעה (30 הימים האחרונים)
   // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
   googleRating?: number
   googleReviewCount?: number
+  dishesPeriod?: { start: string; end: string } // הטווח שכוסה בנתוני המנות/שעות
 }

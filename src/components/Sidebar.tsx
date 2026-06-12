@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Gauge,
   TrendingUp,
+  UtensilsCrossed,
   CalendarHeart,
   CalendarClock,
   Megaphone,
@@ -39,6 +40,7 @@ const sections: { title: string; items: NavItem[] }[] = [
     title: 'קבוצות',
     items: [
       { to: '/sales', label: 'מכירות', icon: TrendingUp },
+      { to: '/menu', label: 'מנות', icon: UtensilsCrossed },
       { to: '/events', label: 'אירועים', icon: CalendarHeart },
       { to: '/guests', label: 'אורחים', icon: CalendarClock },
       { to: '/marketing', label: 'שיווק', icon: Megaphone },
