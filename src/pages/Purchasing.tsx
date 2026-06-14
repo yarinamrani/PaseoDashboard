@@ -5,14 +5,11 @@ import { DataTable, type Column } from '../components/DataTable'
 import { usePaseo } from '../data/DataContext'
 import { num } from '../lib/format'
 import { daysSince } from '../lib/dates'
+import { dishGroup, DISH_GROUPS } from '../lib/dishGroups'
 import type { DishSale } from '../types'
 
 const DOW = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
-const DEPTS = [
-  { key: 'הכל', label: 'הכל' },
-  { key: 'kitchen', label: 'מטבח' },
-  { key: 'bar', label: 'בר' },
-]
+const GROUPS = ['הכל', ...DISH_GROUPS]
 const deptLabel = (s: string) => (s === 'kitchen' ? 'מטבח' : s === 'bar' ? 'בר' : s === 'other' ? 'אחר' : s)
 const pill = (active: boolean) =>
   `px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
@@ -25,7 +22,8 @@ interface WeeklyDish extends DishSale {
 
 export function Purchasing() {
   const d = usePaseo()
-  const [dept, setDept] = useState('הכל')
+  const [group, setGroup] = useState<string>('הכל')
+  const [q, setQ] = useState('')
 
   // --- תחזית סועדים לשבוע הקרוב, לפי ממוצע יום-בשבוע מ-28 הימים האחרונים ---
   const recent = d.sales.filter((s) => daysSince(s.date) <= 28 && daysSince(s.date) >= 0)
@@ -44,7 +42,10 @@ export function Purchasing() {
   const periodDays = period
     ? Math.max(1, Math.round((Date.parse(period.end) - Date.parse(period.start)) / 864e5) + 1)
     : 30
-  const dishes: WeeklyDish[] = (dept === 'הכל' ? d.dishes : d.dishes.filter((x) => x.department === dept))
+  const query = q.trim()
+  const dishes: WeeklyDish[] = d.dishes
+    .filter((x) => group === 'הכל' || dishGroup(x.category, x.department) === group)
+    .filter((x) => !query || x.dishName.includes(query) || (x.category || '').includes(query))
     .map((x) => ({ ...x, perWeek: Math.round((x.quantity / periodDays) * 7) }))
     .filter((x) => x.perWeek >= 1)
     .sort((a, b) => b.perWeek - a.perWeek)
@@ -96,12 +97,20 @@ export function Purchasing() {
             <p className="text-[11px] text-paseo-muted mt-3">לפי מספר הסועדים בפועל (מאלפרד) ב-28 הימים האחרונים.</p>
           </Widget>
 
-          <div className="flex flex-wrap gap-2 mb-4">
-            {DEPTS.map((x) => (
-              <button key={x.key} onClick={() => setDept(x.key)} className={pill(dept === x.key)}>
-                {x.label}
-              </button>
-            ))}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-4">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="חיפוש מנה…"
+              className="w-full sm:w-56 rounded-lg border border-paseo-border bg-paseo-bg px-3 py-1.5 text-sm text-paseo-text outline-none focus:border-paseo-gold"
+            />
+            <div className="flex flex-wrap gap-2">
+              {GROUPS.map((g) => (
+                <button key={g} onClick={() => setGroup(g)} className={pill(group === g)}>
+                  {g}
+                </button>
+              ))}
+            </div>
           </div>
 
           <Widget title="מלאי ברזל שבועי — כמות ממוצעת למנה">

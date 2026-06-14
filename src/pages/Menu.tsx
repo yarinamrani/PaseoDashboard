@@ -5,13 +5,10 @@ import { DataTable, type Column } from '../components/DataTable'
 import { usePaseo } from '../data/DataContext'
 import { shekel, num } from '../lib/format'
 import { formatDate } from '../lib/dates'
+import { dishGroup, DISH_GROUPS } from '../lib/dishGroups'
 import type { DishSale, HourlyBucket } from '../types'
 
-const DEPTS: { key: string; label: string }[] = [
-  { key: 'הכל', label: 'הכל' },
-  { key: 'kitchen', label: 'מטבח' },
-  { key: 'bar', label: 'בר' },
-]
+const GROUPS = ['הכל', ...DISH_GROUPS]
 const deptLabel = (d: string) => (d === 'kitchen' ? 'מטבח' : d === 'bar' ? 'בר' : d === 'other' ? 'אחר' : d)
 
 function pill(active: boolean) {
@@ -54,9 +51,13 @@ function PeakHours({ hourly }: { hourly: HourlyBucket[] }) {
 
 export function Menu() {
   const d = usePaseo()
-  const [dept, setDept] = useState('הכל')
+  const [group, setGroup] = useState<string>('הכל')
+  const [q, setQ] = useState('')
 
-  const dishes = dept === 'הכל' ? d.dishes : d.dishes.filter((x) => x.department === dept)
+  const query = q.trim()
+  const dishes = d.dishes
+    .filter((x) => group === 'הכל' || dishGroup(x.category, x.department) === group)
+    .filter((x) => !query || x.dishName.includes(query) || (x.category || '').includes(query))
   const sorted = [...dishes].sort((a, b) => b.quantity - a.quantity)
   const totalIncome = dishes.reduce((a, x) => a + x.income, 0)
   const totalQty = dishes.reduce((a, x) => a + x.quantity, 0)
@@ -116,12 +117,20 @@ export function Menu() {
         </Widget>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        {DEPTS.map((x) => (
-          <button key={x.key} onClick={() => setDept(x.key)} className={pill(dept === x.key)}>
-            {x.label}
-          </button>
-        ))}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-4">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="חיפוש מנה…"
+          className="w-full sm:w-56 rounded-lg border border-paseo-border bg-paseo-bg px-3 py-1.5 text-sm text-paseo-text outline-none focus:border-paseo-gold"
+        />
+        <div className="flex flex-wrap gap-2">
+          {GROUPS.map((g) => (
+            <button key={g} onClick={() => setGroup(g)} className={pill(group === g)}>
+              {g}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
