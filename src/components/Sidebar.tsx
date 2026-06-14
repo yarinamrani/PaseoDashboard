@@ -75,7 +75,10 @@ export function Sidebar({
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-      <div className="px-5 py-5 border-b border-paseo-border flex items-center justify-between">
+      <div
+        className="px-5 py-5 border-b border-paseo-border flex items-center justify-between"
+        style={{ paddingTop: 'calc(1.25rem + env(safe-area-inset-top))' }}
+      >
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-lg bg-paseo-gold/15 grid place-items-center text-paseo-gold font-black text-lg">
             פ

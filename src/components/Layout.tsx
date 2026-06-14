@@ -42,7 +42,10 @@ export function Layout() {
     <div className="flex h-screen overflow-hidden">
       <Sidebar alertCount={alertCount} open={navOpen} onClose={() => setNavOpen(false)} />
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <header className="h-14 shrink-0 border-b border-paseo-border bg-paseo-surface/60 backdrop-blur flex items-center justify-between px-4 md:px-6">
+        <header
+          className="min-h-[3.5rem] shrink-0 border-b border-paseo-border bg-paseo-surface/60 backdrop-blur flex items-center justify-between px-4 md:px-6"
+          style={{ paddingTop: 'env(safe-area-inset-top)' }}
+        >
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setNavOpen(true)}
