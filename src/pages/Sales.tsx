@@ -7,8 +7,8 @@ import { AddButton } from '../components/AddButton'
 import { Modal } from '../components/Modal'
 import { SalesForm } from '../components/forms/SalesForm'
 import { usePaseo } from '../data/DataContext'
-import { weekRevenue, monthRevenue, weekAvgPerDiner } from '../lib/metrics'
-import { shekel, num } from '../lib/format'
+import { weekRevenue, monthRevenue, weekAvgPerDiner, monthCompare } from '../lib/metrics'
+import { shekel, num, pct } from '../lib/format'
 import { formatDate, daysSince } from '../lib/dates'
 import type { SalesRecord, Cancellations } from '../types'
 
@@ -79,6 +79,7 @@ export function Sales() {
   const revSum = rows.reduce((a, r) => a + r.revenue, 0)
   const cancelPct = revSum ? (cancelSum / revSum) * 100 : 0
   const hasCancel = rows.some((r) => r.cancellations)
+  const mc = monthCompare(d)
 
   return (
     <div>
@@ -116,6 +117,24 @@ export function Sales() {
           </Widget>
         )}
       </div>
+
+      <Widget title="החודש מול חודש שעבר — עד אותו יום בחודש" className="mb-6">
+        <div className="grid grid-cols-2 gap-4">
+          {[
+            { label: 'מחזור', val: shekel(mc.revenue), prev: shekel(mc.revenuePrev), delta: mc.revenueDelta },
+            { label: 'סועדים', val: num(mc.diners), prev: num(mc.dinersPrev), delta: mc.dinersDelta },
+          ].map((x) => (
+            <div key={x.label}>
+              <div className="text-xs text-paseo-muted mb-1">{x.label}</div>
+              <div className="text-2xl font-black tabular-nums text-paseo-gold">{x.val}</div>
+              <div className="flex items-center gap-2 mt-1 text-xs flex-wrap">
+                <span className={`font-bold ${x.delta >= 0 ? 'text-paseo-green' : 'text-paseo-red'}`}>{pct(x.delta)}</span>
+                <span className="text-paseo-muted">חודש שעבר: {x.prev}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Widget>
 
       <Widget title="סיכום מכירות יומי — 30 ימים אחרונים">
         <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} />

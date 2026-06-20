@@ -5,6 +5,7 @@ import {
   startOfMonth,
   endOfMonth,
   subWeeks,
+  subMonths,
   isWithinInterval,
   parseISO,
 } from 'date-fns'
@@ -43,6 +44,17 @@ export function lastWeekToDateRange(ref: Date = TODAY) {
 
 export function thisMonthRange(ref: Date = TODAY) {
   return { start: startOfMonth(ref), end: endOfMonth(ref) }
+}
+
+// "חודש עד היום" — מתחילת החודש ועד עכשיו (להשוואה הוגנת מול חודש קודם)
+export function thisMonthToDateRange(ref: Date = TODAY) {
+  return { start: startOfMonth(ref), end: ref }
+}
+
+// אותו חלק בחודש שעבר (מ-1 בחודש שעבר ועד אותו יום-בחודש)
+export function lastMonthToDateRange(ref: Date = TODAY) {
+  const lm = subMonths(ref, 1)
+  return { start: startOfMonth(lm), end: lm }
 }
 
 // פירוק ISO בטוח — מחזיר null אם התאריך חסר/לא תקין.

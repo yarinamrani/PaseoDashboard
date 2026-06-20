@@ -5,6 +5,8 @@ import {
   thisWeekToDateRange,
   lastWeekToDateRange,
   thisMonthRange,
+  thisMonthToDateRange,
+  lastMonthToDateRange,
   inRange,
   daysSince,
   daysUntil,
@@ -46,6 +48,62 @@ export function monthRevenue(d: PaseoData) {
 export function weekDiners(d: PaseoData) {
   const r = thisWeekToDateRange()
   return d.sales.filter((s) => inRange(s.date, r)).reduce((a, s) => a + s.diners, 0)
+}
+
+function sumDiners(d: PaseoData, r: { start: Date; end: Date }) {
+  return d.sales.filter((s) => inRange(s.date, r)).reduce((a, s) => a + s.diners, 0)
+}
+
+// השוואה חודשית הוגנת: חודש-עד-היום מול אותו חלק בחודש שעבר
+export interface MonthCompare {
+  revenue: number
+  revenuePrev: number
+  revenueDelta: number // אחוז שינוי
+  diners: number
+  dinersPrev: number
+  dinersDelta: number
+}
+const deltaPct = (cur: number, prev: number) => (prev ? ((cur - prev) / prev) * 100 : 0)
+export function monthCompare(d: PaseoData): MonthCompare {
+  const cur = thisMonthToDateRange()
+  const prev = lastMonthToDateRange()
+  const revenue = sumRevenue(d, cur)
+  const revenuePrev = sumRevenue(d, prev)
+  const diners = sumDiners(d, cur)
+  const dinersPrev = sumDiners(d, prev)
+  return {
+    revenue,
+    revenuePrev,
+    revenueDelta: deltaPct(revenue, revenuePrev),
+    diners,
+    dinersPrev,
+    dinersDelta: deltaPct(diners, dinersPrev),
+  }
+}
+
+// --- משפך לידים והמרה ---
+export interface ConversionStats {
+  total: number // סה״כ לידים/אירועים
+  open: number // בפייפליין (טרם הוכרעו)
+  won: number // נסגרו
+  lost: number // אבודים
+  rate: number // אחוז סגירה מתוך מה שהוכרע (won/(won+lost))
+  pipeline: number // שווי לידים פתוחים (₪)
+  wonValue: number // שווי אירועים שנסגרו (₪)
+}
+export function conversionStats(d: PaseoData): ConversionStats {
+  const won = d.events.filter((e) => e.status === 'נסגר')
+  const lost = d.events.filter((e) => e.status === 'אבוד')
+  const decided = won.length + lost.length
+  return {
+    total: d.events.length,
+    open: openLeads(d).length,
+    won: won.length,
+    lost: lost.length,
+    rate: decided ? (won.length / decided) * 100 : 0,
+    pipeline: openPipelineValue(d),
+    wonValue: won.reduce((a, e) => a + (e.value ?? 0), 0),
+  }
 }
 
 export function weekAvgPerDiner(d: PaseoData) {

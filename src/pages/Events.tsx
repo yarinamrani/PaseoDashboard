@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
-import { Widget } from '../components/Widget'
+import { Widget, Stat } from '../components/Widget'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
 import { AddButton } from '../components/AddButton'
 import { Modal } from '../components/Modal'
 import { LeadForm } from '../components/forms/LeadForm'
 import { usePaseo } from '../data/DataContext'
+import { conversionStats } from '../lib/metrics'
 import { EVENT_STATUSES, type EventLead, type EventStatus } from '../types'
 import { formatDate, daysUntil } from '../lib/dates'
 import { num, shekel } from '../lib/format'
@@ -36,6 +37,7 @@ export function Events() {
   const upcomingClosed = d.events.filter(
     (e) => e.status === 'נסגר' && daysUntil(e.date) >= 0,
   ).length
+  const cs = conversionStats(d)
 
   const filters: Filter[] = ['הכל', ...EVENT_STATUSES]
 
@@ -50,6 +52,25 @@ export function Events() {
       <Modal open={adding} title="ליד חדש" onClose={() => setAdding(false)}>
         <LeadForm onClose={() => setAdding(false)} />
       </Modal>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <Widget title="בפייפליין">
+          <Stat value={num(cs.open)} label="לידים פעילים בטיפול" tone="text-paseo-blue" />
+        </Widget>
+        <Widget title="אחוז המרה">
+          <Stat
+            value={`${Math.round(cs.rate)}%`}
+            label={`${cs.won} נסגרו · ${cs.lost} אבדו`}
+            tone={cs.rate >= 50 ? 'text-paseo-green' : cs.rate >= 25 ? 'text-paseo-amber' : 'text-paseo-red'}
+          />
+        </Widget>
+        <Widget title="שווי פייפליין">
+          <Stat value={cs.pipeline ? shekel(cs.pipeline) : '—'} label="לידים פתוחים" tone="text-paseo-gold" />
+        </Widget>
+        <Widget title="נסגר (שווי)">
+          <Stat value={cs.wonValue ? shekel(cs.wonValue) : '—'} label={`${cs.won} אירועים`} tone="text-paseo-green" />
+        </Widget>
+      </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
         {filters.map((f) => (
