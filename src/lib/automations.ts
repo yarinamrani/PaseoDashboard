@@ -48,8 +48,10 @@ export function runAutomations(d: PaseoData): Alert[] {
 
   // 1) ליד חדש -> Follow Up אוטומטי ל-24 שעות
   for (const e of d.events) {
-    if (e.status === 'ליד חדש' && hoursSince(e.createdAt) <= 24) {
-      const hoursLeft = Math.max(0, Math.round(24 - hoursSince(e.createdAt)))
+    const since = hoursSince(e.createdAt)
+    // רק לידים שנוצרו ב-24 השעות האחרונות (since תקין ולא שלילי/עתידי)
+    if (e.status === 'ליד חדש' && since >= 0 && since <= 24) {
+      const hoursLeft = Math.max(0, Math.min(24, Math.round(24 - since)))
       alerts.push({
         id: `al-fu-${e.id}`,
         rule: 'Follow Up לליד חדש',
