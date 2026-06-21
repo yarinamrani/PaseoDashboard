@@ -10,9 +10,13 @@ import type { Reservation } from '../types'
 const CANCELLED = ['deleted', 'canceled', 'cancelled', 'declined']
 const NOSHOW = ['noShow', 'no_show', 'noshow']
 const CONFIRMED = ['approved', 'seated', 'done', 'arrived']
+const PENDING = ['invited', 'callback', 'queue', 'standby']
 const isCancelled = (s: string) => CANCELLED.includes(s)
 const isNoShow = (s: string) => NOSHOW.includes(s)
 const isConfirmed = (s: string) => CONFIRMED.includes(s)
+const isPending = (s: string) => PENDING.includes(s)
+// "מוזמן" = כל הזמנה פעילה (לא בוטלה ולא no-show) — כולל ממתינות לאישור, בדיוק כמו שרואים באונטופו
+const isActive = (s: string) => !isCancelled(s) && !isNoShow(s)
 
 const statusInfo: Record<string, { label: string; cls: string }> = {
   approved: { label: 'מאושר', cls: 'bg-paseo-green/15 text-paseo-green' },
@@ -60,12 +64,14 @@ export function Guests() {
   }
   const list = d.reservations.filter(inPeriod)
 
+  const active = list.filter((r) => isActive(r.status))
   const confirmed = list.filter((r) => isConfirmed(r.status))
+  const pending = list.filter((r) => isPending(r.status))
   const cancelled = list.filter((r) => isCancelled(r.status))
   const noShows = list.filter((r) => isNoShow(r.status))
-  const covers = confirmed.reduce((a, r) => a + r.size, 0)
-  const days = period === 'today' ? 1 : period === 'week' ? 7 : period === 'month' ? 30 : 7
-  const avgCoversPerDay = Math.round(covers / days)
+  const covers = active.reduce((a, r) => a + r.size, 0) // כל המוזמנים הפעילים
+  const confirmedCovers = confirmed.reduce((a, r) => a + r.size, 0)
+  const pendingCovers = pending.reduce((a, r) => a + r.size, 0)
   const totalBooked = list.length
   const cancelRate = totalBooked ? Math.round(((cancelled.length + noShows.length) / totalBooked) * 100) : 0
 
@@ -107,21 +113,21 @@ export function Guests() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Widget title={`סועדים · ${periodLabel}`}>
-          <Stat value={num(covers)} label={`${confirmed.length} הזמנות`} tone="text-paseo-green" />
+        <Widget title={`מוזמנים · ${periodLabel}`}>
+          <Stat value={num(covers)} label={`${active.length} הזמנות פעילות`} tone="text-paseo-green" />
         </Widget>
-        <Widget title="ממוצע סועדים ליום">
-          <Stat value={num(avgCoversPerDay)} label={period === 'today' ? 'היום' : `על פני ${days} ימים`} tone="text-paseo-blue" />
+        <Widget title="מאושרים">
+          <Stat value={num(confirmedCovers)} label={`${confirmed.length} הזמנות`} tone="text-paseo-blue" />
+        </Widget>
+        <Widget title="ממתינים לאישור">
+          <Stat value={num(pendingCovers)} label={`${pending.length} הזמנות`} tone={pendingCovers ? 'text-paseo-amber' : 'text-paseo-muted'} />
         </Widget>
         <Widget title="ביטולים">
           <Stat
             value={cancelled.length + noShows.length}
-            label={`${cancelled.length} בוטלו · ${noShows.length} לא הגיעו`}
+            label={`${cancelled.length} בוטלו · ${noShows.length} לא הגיעו · ${cancelRate}%`}
             tone={cancelled.length + noShows.length ? 'text-paseo-red' : 'text-paseo-muted'}
           />
-        </Widget>
-        <Widget title="אחוז ביטול">
-          <Stat value={`${cancelRate}%`} label={`מתוך ${totalBooked} הזמנות`} tone={cancelRate >= 25 ? 'text-paseo-red' : cancelRate >= 12 ? 'text-paseo-amber' : 'text-paseo-green'} />
         </Widget>
       </div>
 
