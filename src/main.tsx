@@ -20,6 +20,7 @@ import { Maintenance } from './pages/Maintenance'
 import { Employees } from './pages/Employees'
 import { Suppliers } from './pages/Suppliers'
 import { Purchasing } from './pages/Purchasing'
+import { Recipes } from './pages/Recipes'
 import { Professionals } from './pages/Professionals'
 import { Tasks } from './pages/Tasks'
 
@@ -44,6 +45,7 @@ const router = createBrowserRouter([
       { path: 'employees', element: <Employees /> },
       { path: 'suppliers', element: <Suppliers /> },
       { path: 'purchasing', element: <Purchasing /> },
+      { path: 'recipes', element: <Recipes /> },
     ],
   },
 ], {

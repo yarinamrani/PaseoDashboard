@@ -62,6 +62,30 @@ export function Purchasing() {
   const periodDays = period
     ? Math.max(1, Math.round((Date.parse(period.end) - Date.parse(period.start)) / 864e5) + 1)
     : 30
+  // --- סחורת ברזל לפי מצרך/ספק (מהמתכונים) ---
+  const ingById = new Map(d.ingredients.map((i) => [i.id, i]))
+  const parByDish = new Map<string, number>()
+  for (const x of d.dishes) {
+    const pw = Math.round((x.quantity / periodDays) * 7)
+    parByDish.set(x.dishName, Math.ceil(pw * safety))
+  }
+  const needByIng = new Map<string, number>()
+  for (const line of d.recipes) {
+    const par = parByDish.get(line.dishName) ?? 0
+    if (par <= 0) continue
+    needByIng.set(line.ingredientId, (needByIng.get(line.ingredientId) ?? 0) + par * line.qty)
+  }
+  const bySupplier = new Map<string, { name: string; unit: string; qty: number }[]>()
+  for (const [ingId, qty] of needByIng) {
+    const ing = ingById.get(ingId)
+    if (!ing) continue
+    const sup = ing.supplier || 'ללא ספק'
+    const arr = bySupplier.get(sup) ?? []
+    arr.push({ name: ing.name, unit: ing.unit, qty: Math.ceil(qty) })
+    bySupplier.set(sup, arr)
+  }
+  const supplierGroups = [...bySupplier.entries()].sort((a, b) => a[0].localeCompare(b[0], 'he'))
+
   const query = q.trim()
   const dishes: WeeklyDish[] = d.dishes
     .filter((x) => group === 'הכל' || dishGroup(x.category, x.department) === group)
@@ -139,6 +163,31 @@ export function Purchasing() {
               ))}
             </div>
           </div>
+
+          {supplierGroups.length > 0 && (
+            <div className="mb-6">
+              <h2 className="font-bold text-paseo-text mb-3">סחורת ברזל לפי ספק — להזמנה השבוע</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {supplierGroups.map(([sup, items]) => (
+                  <Widget key={sup} title={sup}>
+                    <div className="divide-y divide-paseo-border">
+                      {items
+                        .sort((a, b) => b.qty - a.qty)
+                        .map((it) => (
+                          <div key={it.name} className="flex items-center justify-between py-2 text-sm">
+                            <span className="text-paseo-text/90">{it.name}</span>
+                            <span className="font-bold text-paseo-gold tabular-nums">
+                              {num(it.qty)} {it.unit}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </Widget>
+                ))}
+              </div>
+              <p className="text-[11px] text-paseo-muted mt-2">מחושב מהמתכונים × מלאי הברזל של המנות. כולל מקדם ביטחון ×{safety.toFixed(2)}.</p>
+            </div>
+          )}
 
           <Widget title="מלאי ברזל שבועי לכל מנה">
             <DataTable columns={cols} rows={dishes} rowKey={(r) => r.dishName + r.category} empty="אין נתוני מנות" />

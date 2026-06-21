@@ -40,6 +40,22 @@ export interface HourlyBucket {
   revenue: number
 }
 
+// מצרך / חומר גלם (לתכנון רכש ברמת סחורה)
+export interface Ingredient {
+  id: string
+  name: string
+  unit: string // ק״ג / יח׳ / ליטר / מארז
+  supplier?: string // שם ספק
+}
+
+// שורת מתכון: כמה מצרך נכנס למנה אחת
+export interface RecipeLine {
+  id: string
+  dishName: string
+  ingredientId: string
+  qty: number // כמות מצרך (ביחידת המצרך) למנה אחת
+}
+
 // --- קבוצה 2: אירועים ---
 export type EventStatus =
   | 'ליד חדש'
@@ -279,6 +295,8 @@ export interface PaseoData {
   taskDone: string[] // מזהי לוג שבוצעו לתקופה הנוכחית: `${taskId}__${periodKey}`
   dishes: DishSale[] // מכירות ברמת המנה (30 הימים האחרונים)
   hourly: HourlyBucket[] // פילוח לפי שעה (30 הימים האחרונים)
+  ingredients: Ingredient[] // מצרכים / חומרי גלם
+  recipes: RecipeLine[] // מתכונים (מנה → מצרכים)
   // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
   googleRating?: number
   googleReviewCount?: number

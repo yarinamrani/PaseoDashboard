@@ -22,6 +22,8 @@ import type {
   MarketingStatus,
   DishSale,
   HourlyBucket,
+  Ingredient,
+  RecipeLine,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -76,6 +78,20 @@ const mapHourly = (r: any): HourlyBucket => ({
   diners: Number(r.diners ?? 0),
   orders: Number(r.orders ?? 0),
   revenue: Number(r.revenue ?? 0),
+})
+
+const mapIngredient = (r: any): Ingredient => ({
+  id: String(r.id),
+  name: r.name ?? '',
+  unit: r.unit ?? 'יח׳',
+  supplier: r.supplier ?? undefined,
+})
+
+const mapRecipe = (r: any): RecipeLine => ({
+  id: String(r.id),
+  dishName: r.dish_name ?? '',
+  ingredientId: String(r.ingredient_id),
+  qty: Number(r.qty ?? 0),
 })
 
 // תרגום סטטוס ה-CRM (אנגלית) לסטטוס הדשבורד (עברית)
@@ -245,7 +261,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll, tasks, taskLog, dishes, hourly] =
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll, tasks, taskLog, dishes, hourly, ingredients, recipes] =
       await withTimeout(
         Promise.all([
           supabase.from('crm_leads').select('*'),
@@ -263,6 +279,8 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           supabase.from('dash_task_log').select('id').eq('done', true).in('period_key', [dayKey(), weekKey()]),
           supabase.from('dash_dishes').select('*').order('quantity', { ascending: false }),
           supabase.from('dash_hourly').select('*').order('hour', { ascending: true }),
+          supabase.from('dash_ingredients').select('*').order('name'),
+          supabase.from('dash_recipes').select('*'),
         ]),
         LOAD_TIMEOUT_MS,
       )
@@ -306,6 +324,8 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
         taskDone: taskLog.error ? [] : (taskLog.data ?? []).map((r: any) => String(r.id)),
         dishes: dishes.error ? [] : (dishes.data ?? []).map(mapDish),
         hourly: hourly.error ? [] : (hourly.data ?? []).map(mapHourly),
+        ingredients: ingredients.error ? [] : (ingredients.data ?? []).map(mapIngredient),
+        recipes: recipes.error ? [] : (recipes.data ?? []).map(mapRecipe),
         googleRating: gRating,
         googleReviewCount: gCount,
         dishesPeriod,
@@ -372,6 +392,39 @@ export async function deleteSales(id: string): Promise<void> {
 // --- ביקורות: סימון ביקורת כטופלה (לטיפול מול הלקוח) ---
 export async function setReviewHandled(id: string, handled: boolean): Promise<void> {
   await run(client().from('dash_reviews').update({ handled }).eq('id', id))
+}
+
+// --- מצרכים ומתכונים (לתכנון רכש ברמת סחורה) ---
+export async function createIngredient(input: Omit<Ingredient, 'id'>): Promise<void> {
+  await run(
+    client().from('dash_ingredients').insert({
+      name: input.name,
+      unit: input.unit,
+      supplier: input.supplier ?? null,
+    }),
+  )
+}
+export async function updateIngredient(id: string, patch: Partial<Omit<Ingredient, 'id'>>): Promise<void> {
+  const row: Record<string, unknown> = {}
+  if (patch.name !== undefined) row.name = patch.name
+  if (patch.unit !== undefined) row.unit = patch.unit
+  if (patch.supplier !== undefined) row.supplier = patch.supplier || null
+  await run(client().from('dash_ingredients').update(row).eq('id', id))
+}
+export async function deleteIngredient(id: string): Promise<void> {
+  await run(client().from('dash_ingredients').delete().eq('id', id))
+}
+
+export async function addRecipeLine(dishName: string, ingredientId: string, qty: number): Promise<void> {
+  await run(
+    client().from('dash_recipes').insert({ dish_name: dishName, ingredient_id: ingredientId, qty }),
+  )
+}
+export async function updateRecipeLine(id: string, qty: number): Promise<void> {
+  await run(client().from('dash_recipes').update({ qty }).eq('id', id))
+}
+export async function deleteRecipeLine(id: string): Promise<void> {
+  await run(client().from('dash_recipes').delete().eq('id', id))
 }
 
 // --- אירועים / לידים (כתיבה ל-crm_leads האמיתי) ---

@@ -155,4 +155,6 @@ export const paseoData: PaseoData = {
   taskDone: [],
   dishes: [],
   hourly: [],
+  ingredients: [],
+  recipes: [],
 }
