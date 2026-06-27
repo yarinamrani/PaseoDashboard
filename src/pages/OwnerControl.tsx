@@ -1,4 +1,4 @@
-import { Banknote, CalendarHeart, Inbox, Star, Wrench, Flame, MessageSquare, Users, AlertTriangle, ListTodo } from 'lucide-react'
+import { Banknote, CalendarHeart, Inbox, Star, Wrench, Flame, MessageSquare, Users, AlertTriangle, ListTodo, Receipt } from 'lucide-react'
 import { KpiCard, type Tone } from '../components/KpiCard'
 import { PageHeader } from '../components/PageHeader'
 import { AlertsPanel } from '../components/AlertsPanel'
@@ -33,6 +33,8 @@ export function OwnerControl() {
   const issues = openIssues(d)
   const alerts = runAutomations(d)
   const reds = alerts.filter((a) => a.severity === 'high')
+  // בונוס: חריגות מחיר ספקים שטרם טופלו
+  const priceAnoms = d.priceAnomalies.filter((a) => !a.acknowledged && a.pctChange > 0).length
 
   // דירוג אונטופו — ממוצע סקרי האורחים (24 חודשים אחרונים)
   const otReviews = d.reviews.filter((r) => isOntopo(r.platform) && daysSince(r.date) <= 730)
@@ -159,6 +161,14 @@ export function OwnerControl() {
           tone={redTone}
           to="/automations"
           sub="דורשות טיפול מיידי"
+        />
+        <KpiCard
+          label="חריגות מחיר"
+          value={String(priceAnoms)}
+          icon={Receipt}
+          tone={priceAnoms ? 'bad' : 'good'}
+          to="/costs"
+          sub="מצרכים שהתייקרו אצל ספקים"
         />
       </div>
 

@@ -14,6 +14,7 @@ import {
   Truck,
   ShoppingCart,
   BookOpen,
+  Receipt,
   Zap,
   CalendarCheck,
   ListChecks,
@@ -54,6 +55,7 @@ const sections: { title: string; items: NavItem[] }[] = [
       { to: '/suppliers', label: 'ספקים', icon: Truck },
       { to: '/purchasing', label: 'תכנון רכש', icon: ShoppingCart },
       { to: '/recipes', label: 'מתכונים ומצרכים', icon: BookOpen },
+      { to: '/costs', label: 'עלויות ומחירים', icon: Receipt },
     ],
   },
 ]

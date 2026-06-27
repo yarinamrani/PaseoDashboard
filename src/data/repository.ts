@@ -24,6 +24,8 @@ import type {
   HourlyBucket,
   Ingredient,
   RecipeLine,
+  Invoice,
+  PriceAnomaly,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -92,6 +94,24 @@ const mapRecipe = (r: any): RecipeLine => ({
   dishName: r.dish_name ?? '',
   ingredientId: String(r.ingredient_id),
   qty: Number(r.qty ?? 0),
+})
+
+const mapInvoice = (r: any): Invoice => ({
+  id: String(r.id),
+  date: isoDay(r.invoice_date) || isoDay(r.received_date) || isoDay(r.created_at),
+  total: Number(r.total_amount ?? 0),
+  invoiceNumber: r.invoice_number ?? undefined,
+})
+
+const mapAnomaly = (r: any): PriceAnomaly => ({
+  productName: r.product_name ?? '',
+  supplierName: r.supplier_name ?? '',
+  prevPrice: Number(r.avg_3_invoices ?? r.prev_price ?? 0),
+  currentPrice: Number(r.current_price ?? 0),
+  pctChange: Number(r.pct_change ?? 0),
+  level: r.anomaly_level ?? 'medium',
+  date: isoDay(r.invoice_date),
+  acknowledged: !!r.acknowledged,
 })
 
 // תרגום סטטוס ה-CRM (אנגלית) לסטטוס הדשבורד (עברית)
@@ -261,7 +281,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll, tasks, taskLog, dishes, hourly, ingredients, recipes] =
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll, tasks, taskLog, dishes, hourly, ingredients, recipes, invoices, anomalies] =
       await withTimeout(
         Promise.all([
           supabase.from('crm_leads').select('*'),
@@ -281,6 +301,8 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           supabase.from('dash_hourly').select('*').order('hour', { ascending: true }),
           supabase.from('dash_ingredients').select('*').order('name'),
           supabase.from('dash_recipes').select('*'),
+          supabase.from('invoices').select('id,invoice_number,invoice_date,received_date,total_amount,created_at').order('invoice_date', { ascending: false }),
+          supabase.rpc('get_price_anomalies'),
         ]),
         LOAD_TIMEOUT_MS,
       )
@@ -326,6 +348,8 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
         hourly: hourly.error ? [] : (hourly.data ?? []).map(mapHourly),
         ingredients: ingredients.error ? [] : (ingredients.data ?? []).map(mapIngredient),
         recipes: recipes.error ? [] : (recipes.data ?? []).map(mapRecipe),
+        invoices: invoices.error ? [] : (invoices.data ?? []).map(mapInvoice),
+        priceAnomalies: anomalies.error ? [] : (anomalies.data ?? []).map(mapAnomaly),
         googleRating: gRating,
         googleReviewCount: gCount,
         dishesPeriod,

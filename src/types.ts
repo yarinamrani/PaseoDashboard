@@ -280,6 +280,26 @@ export interface Reservation {
   status: string // approved/seated/done/deleted/canceled/invited/...
 }
 
+// שורת חשבונית רכש (מהבוט)
+export interface Invoice {
+  id: string
+  date: string
+  total: number
+  invoiceNumber?: string
+}
+
+// חריגת מחיר ספק (מזוהה ע"י get_price_anomalies)
+export interface PriceAnomaly {
+  productName: string
+  supplierName: string
+  prevPrice: number
+  currentPrice: number
+  pctChange: number
+  level: string // high / medium
+  date: string
+  acknowledged: boolean
+}
+
 export interface PaseoData {
   sales: SalesRecord[]
   events: EventLead[]
@@ -297,6 +317,8 @@ export interface PaseoData {
   hourly: HourlyBucket[] // פילוח לפי שעה (30 הימים האחרונים)
   ingredients: Ingredient[] // מצרכים / חומרי גלם
   recipes: RecipeLine[] // מתכונים (מנה → מצרכים)
+  invoices: Invoice[] // חשבוניות רכש שנקלטו מהבוט
+  priceAnomalies: PriceAnomaly[] // חריגות מחיר ספקים
   // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
   googleRating?: number
   googleReviewCount?: number
