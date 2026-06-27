@@ -320,8 +320,32 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
     // crm_leads הוא המקור הקריטי; אם הוא נכשל — נפילה מלאה ל-Mock
     if (events.error) throw events.error
 
+    // איסוף כשלים פר-טבלה — כדי לא להציג "0 שקט" עם תווית "מחובר".
+    // הטבלה הקריטית (crm_leads) כבר נזרקה למעלה; כאן רק מקורות משניים.
+    const failed: string[] = []
+    const checks: [string, { error: unknown }][] = [
+      ['מכירות', sales],
+      ['תחזוקה', maintenance],
+      ['ספקים', suppliers],
+      ['שיווק', marketing],
+      ['ביקורות', reviews],
+      ['עובדים', employees],
+      ['אנשי מקצוע', professionals],
+      ['הזמנות', reservations],
+      ['שכר', payroll],
+      ['משימות', tasks],
+      ['מנות', dishes],
+      ['שעות שיא', hourly],
+      ['מצרכים', ingredients],
+      ['מתכונים', recipes],
+      ['חשבוניות', invoices],
+      ['חריגות מחיר', anomalies],
+    ]
+    for (const [label, res] of checks) if (res.error) failed.push(label)
+
     return {
       source: 'supabase',
+      error: failed.length ? `טבלאות שלא נטענו: ${failed.join(', ')}` : undefined,
       data: {
         // לידים אמיתיים מ-crm_leads — מסננים לידים שסומנו כלא רלוונטיים (ספאם)
         events: (events.data ?? [])

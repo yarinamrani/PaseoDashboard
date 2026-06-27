@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
-import { Database, FlaskConical, LogOut, Menu } from 'lucide-react'
+import { Database, FlaskConical, LogOut, Menu, AlertTriangle } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { usePaseo, useDataSource } from '../data/DataContext'
 import { useAuth } from '../data/AuthContext'
@@ -29,6 +29,20 @@ function SourceBadge() {
       {live ? <Database size={12} /> : <FlaskConical size={12} />}
       {live ? 'מחובר ל-Supabase' : 'נתוני דמה'}
     </span>
+  )
+}
+
+// פס אזהרה כשחלק מהטבלאות נכשלו בטעינה — כדי לא להציג "0" שקט כאילו אין נתונים
+function PartialFailureBanner() {
+  const { source, error } = useDataSource()
+  if (source !== 'supabase' || !error) return null
+  return (
+    <div className="flex items-start gap-2 border-b border-paseo-red/30 bg-paseo-red/10 px-4 md:px-6 py-2 text-xs text-paseo-red">
+      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+      <span>
+        חלק מהנתונים לא נטענו ({error}). המספרים בעמודים אלו עשויים להיות חלקיים — נסה לרענן.
+      </span>
+    </div>
   )
 }
 
@@ -74,6 +88,7 @@ export function Layout() {
             )}
           </div>
         </header>
+        <PartialFailureBanner />
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <Outlet />
         </main>
