@@ -27,10 +27,12 @@ function whatsappLink(phone: string, name?: string): string | null {
 const GOOGLE_REPLY_URL = 'https://business.google.com/reviews'
 
 function Stars({ rating }: { rating: number }) {
+  // חוסם ערכים חורגים/עשרוניים כדי למנוע RangeError ("מסך לבן") אם יגיע דירוג לא תקין
+  const r = Math.max(0, Math.min(5, Math.round(rating || 0)))
   return (
     <span className="text-paseo-gold tabular-nums" title={`${rating}/5`}>
-      {'★'.repeat(rating)}
-      <span className="text-paseo-border">{'★'.repeat(5 - rating)}</span>
+      {'★'.repeat(r)}
+      <span className="text-paseo-border">{'★'.repeat(5 - r)}</span>
     </span>
   )
 }
