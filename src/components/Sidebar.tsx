@@ -15,6 +15,7 @@ import {
   ShoppingCart,
   BookOpen,
   Receipt,
+  PieChart,
   Zap,
   CalendarCheck,
   ListChecks,
@@ -56,6 +57,7 @@ const sections: { title: string; items: NavItem[] }[] = [
       { to: '/purchasing', label: 'תכנון רכש', icon: ShoppingCart },
       { to: '/recipes', label: 'מתכונים ומצרכים', icon: BookOpen },
       { to: '/costs', label: 'עלויות ומחירים', icon: Receipt },
+      { to: '/supplier-expenses', label: 'הוצאות ספקים', icon: PieChart },
     ],
   },
 ]

@@ -26,6 +26,7 @@ import type {
   RecipeLine,
   Invoice,
   PriceAnomaly,
+  SupplierExpense,
 } from '../types'
 
 export type DataSource = 'supabase' | 'mock'
@@ -101,6 +102,14 @@ const mapInvoice = (r: any): Invoice => ({
   date: isoDay(r.invoice_date) || isoDay(r.received_date) || isoDay(r.created_at),
   total: Number(r.total_amount ?? 0),
   invoiceNumber: r.invoice_number ?? undefined,
+})
+
+const mapSupplierExpense = (r: any): SupplierExpense => ({
+  supplierId: r.supplier_id ?? undefined,
+  supplierName: r.supplier_name ?? 'ספק לא מזוהה',
+  invoiceRef: r.invoice_ref ?? undefined,
+  date: isoDay(r.invoice_date) || isoDay(r.confirmed_at),
+  total: Number(r.total_amount ?? 0),
 })
 
 const mapAnomaly = (r: any): PriceAnomaly => ({
@@ -281,7 +290,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
   try {
     // קוראים רק את הטבלאות שיש להן מקור אמיתי בפרויקט:
     // אירועים מ-crm_leads (ה-CRM החי), מכירות/תחזוקה מטבלאות dash_.
-    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll, tasks, taskLog, dishes, hourly, ingredients, recipes, invoices, anomalies] =
+    const [events, sales, maintenance, suppliers, reviews, meta, professionals, reservations, marketing, employees, payroll, tasks, taskLog, dishes, hourly, ingredients, recipes, invoices, anomalies, expenses] =
       await withTimeout(
         Promise.all([
           supabase.from('crm_leads').select('*'),
@@ -303,6 +312,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
           supabase.from('dash_recipes').select('*'),
           supabase.from('invoices').select('id,invoice_number,invoice_date,received_date,total_amount,created_at').order('invoice_date', { ascending: false }),
           supabase.rpc('get_price_anomalies'),
+          supabase.rpc('get_supplier_expenses'),
         ]),
         LOAD_TIMEOUT_MS,
       )
@@ -340,6 +350,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
       ['מתכונים', recipes],
       ['חשבוניות', invoices],
       ['חריגות מחיר', anomalies],
+      ['הוצאות ספקים', expenses],
     ]
     for (const [label, res] of checks) if (res.error) failed.push(label)
 
@@ -374,6 +385,7 @@ export async function loadPaseoData(demo = false): Promise<LoadResult> {
         recipes: recipes.error ? [] : (recipes.data ?? []).map(mapRecipe),
         invoices: invoices.error ? [] : (invoices.data ?? []).map(mapInvoice),
         priceAnomalies: anomalies.error ? [] : (anomalies.data ?? []).map(mapAnomaly),
+        supplierExpenses: expenses.error ? [] : (expenses.data ?? []).map(mapSupplierExpense),
         googleRating: gRating,
         googleReviewCount: gCount,
         dishesPeriod,

@@ -288,6 +288,15 @@ export interface Invoice {
   invoiceNumber?: string
 }
 
+// הוצאה לספק — חשבונית מאושרת (get_supplier_expenses)
+export interface SupplierExpense {
+  supplierId?: string
+  supplierName: string
+  invoiceRef?: string
+  date: string
+  total: number
+}
+
 // חריגת מחיר ספק (מזוהה ע"י get_price_anomalies)
 export interface PriceAnomaly {
   productName: string
@@ -319,6 +328,7 @@ export interface PaseoData {
   recipes: RecipeLine[] // מתכונים (מנה → מצרכים)
   invoices: Invoice[] // חשבוניות רכש שנקלטו מהבוט
   priceAnomalies: PriceAnomaly[] // חריגות מחיר ספקים
+  supplierExpenses: SupplierExpense[] // הוצאות לפי ספק (חשבוניות מאושרות)
   // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
   googleRating?: number
   googleReviewCount?: number

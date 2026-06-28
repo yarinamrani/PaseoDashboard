@@ -24,6 +24,7 @@ import { Recipes } from './pages/Recipes'
 import { Costs } from './pages/Costs'
 import { Professionals } from './pages/Professionals'
 import { Tasks } from './pages/Tasks'
+import { SupplierExpenses } from './pages/SupplierExpenses'
 
 const router = createBrowserRouter([
   {
@@ -48,6 +49,7 @@ const router = createBrowserRouter([
       { path: 'purchasing', element: <Purchasing /> },
       { path: 'recipes', element: <Recipes /> },
       { path: 'costs', element: <Costs /> },
+      { path: 'supplier-expenses', element: <SupplierExpenses /> },
     ],
   },
 ], {

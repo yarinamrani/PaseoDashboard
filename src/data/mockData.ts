@@ -159,4 +159,5 @@ export const paseoData: PaseoData = {
   recipes: [],
   invoices: [],
   priceAnomalies: [],
+  supplierExpenses: [],
 }
