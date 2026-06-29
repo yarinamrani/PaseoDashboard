@@ -25,6 +25,7 @@ import { Costs } from './pages/Costs'
 import { Professionals } from './pages/Professionals'
 import { Tasks } from './pages/Tasks'
 import { SupplierExpenses } from './pages/SupplierExpenses'
+import { GuestLoyalty } from './pages/GuestLoyalty'
 
 const router = createBrowserRouter([
   {
@@ -50,6 +51,7 @@ const router = createBrowserRouter([
       { path: 'recipes', element: <Recipes /> },
       { path: 'costs', element: <Costs /> },
       { path: 'supplier-expenses', element: <SupplierExpenses /> },
+      { path: 'guest-loyalty', element: <GuestLoyalty /> },
     ],
   },
 ], {

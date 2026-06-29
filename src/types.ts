@@ -288,6 +288,17 @@ export interface Invoice {
   invoiceNumber?: string
 }
 
+// נאמנות אורח — מתוך הזמנות אונטופו (get_guest_loyalty)
+export interface GuestLoyalty {
+  phone: string
+  name: string
+  visits: number
+  covers: number
+  firstVisit: string
+  lastVisit: string
+  daysSince: number
+}
+
 // הוצאה לספק — חשבונית מאושרת (get_supplier_expenses)
 export interface SupplierExpense {
   supplierId?: string
@@ -329,6 +340,7 @@ export interface PaseoData {
   invoices: Invoice[] // חשבוניות רכש שנקלטו מהבוט
   priceAnomalies: PriceAnomaly[] // חריגות מחיר ספקים
   supplierExpenses: SupplierExpense[] // הוצאות לפי ספק (חשבוניות מאושרות)
+  guestLoyalty: GuestLoyalty[] // נאמנות אורחים מאונטופו
   // דירוג גוגל האמיתי (אגרגטיבי) — לא ממוצע 5 הביקורות שנמשכות
   googleRating?: number
   googleReviewCount?: number
