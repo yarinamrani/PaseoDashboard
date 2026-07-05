@@ -26,6 +26,7 @@ import { Professionals } from './pages/Professionals'
 import { Tasks } from './pages/Tasks'
 import { SupplierExpenses } from './pages/SupplierExpenses'
 import { GuestLoyalty } from './pages/GuestLoyalty'
+import { TvBoard } from './pages/TvBoard'
 
 const router = createBrowserRouter([
   {
@@ -54,6 +55,8 @@ const router = createBrowserRouter([
       { path: 'guest-loyalty', element: <GuestLoyalty /> },
     ],
   },
+  // מסך TV חי — במכוון מחוץ ל-Layout (בלי תפריט/כותרת, מסך מלא)
+  { path: '/tv', element: <TvBoard /> },
 ], {
   // תומך גם בהרצה מקומית (base '/') וגם בפרסום ל-GitHub Pages תחת תת-נתיב
   basename: import.meta.env.BASE_URL.replace(/\/$/, '') || '/',

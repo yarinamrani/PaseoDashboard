@@ -18,6 +18,7 @@ import {
   PieChart,
   HeartHandshake,
   Zap,
+  Tv,
   CalendarCheck,
   ListChecks,
   X,
@@ -39,6 +40,7 @@ const sections: { title: string; items: NavItem[] }[] = [
       { to: '/ceo', label: 'דשבורד מנכ״ל', icon: LayoutDashboard },
       { to: '/weekly', label: 'KPI שבועי', icon: CalendarCheck },
       { to: '/automations', label: 'אוטומציות והתראות', icon: Zap },
+      { to: '/tv', label: 'מסך חי (TV)', icon: Tv },
     ],
   },
   {
