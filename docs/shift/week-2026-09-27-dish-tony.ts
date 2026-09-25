@@ -19,7 +19,7 @@ const U = "אומינו";
 
 type Row = [number, number, number, string, string];
 const ROWS: Row[] = [
-  [0, B, W.JONATHAN, "10:00", ""], [0, B, W.JEREMY, "10:00", U],
+  [0, B, W.JONATHAN, "10:00", ""], [0, B, W.JEREMY, "11:00", U],   // ירין: ג׳רמי סגר מוצ"ש — מתחיל 11:00
   [0, E, W.PATEL, "17:00", ""], [0, E, W.ENZO, "18:00", ""], [0, E, W.HILLARY, "18:00", U],
 
   [1, B, W.JONATHAN, "10:00", ""], [1, B, W.JEREMY, "10:00", U],
