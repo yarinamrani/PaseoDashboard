@@ -45,10 +45,9 @@ Tala: closed
 *Saturday 03.10*
 Paseo morning: Jonathan 08:00
 Umino morning: closed
-Paseo evening: Enzo 16:00, Hillary 18:00
-Umino evening: Patel 19:30
-Tala evening: TBD
+Paseo evening: Enzo 16:00, Hillary 18:00, Patel 19:30
+Umino evening: Jeremy 19:30
 
 ——————
 *Shifts this week*
-Jonathan 7 | Enzo 7 | Jeremy 6 | Hillary 6 | Patel 6 | Tony 2
+Jonathan 7 | Enzo 7 | Jeremy 7 | Hillary 6 | Patel 6 | Tony 2
