@@ -31,7 +31,8 @@ Umino evening: Patel 18:00
 *Thursday 01.10*
 Paseo morning: Enzo 10:00
 Umino morning: Jeremy 10:00
-Paseo evening: Enzo 17:00, Tony 19:00
+Paseo evening: Enzo 17:00
+Tala evening: Tony 19:00
 Umino evening: Patel 18:00
 
 *Friday 02.10*
@@ -39,12 +40,14 @@ Paseo morning: Jonathan 08:00, Enzo 13:00
 Umino morning: Jeremy 10:00
 Paseo evening: Hillary 17:00, Tony 19:00
 Umino evening: closed
+Tala: closed
 
 *Saturday 03.10*
 Paseo morning: Jonathan 08:00
 Umino morning: closed
 Paseo evening: Enzo 16:00, Hillary 18:00
 Umino evening: Patel 19:30
+Tala evening: TBD
 
 ——————
 *Shifts this week*
