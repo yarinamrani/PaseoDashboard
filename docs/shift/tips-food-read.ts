@@ -1,13 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-// קריאה בלבד: לתאריך נתון (?date=YYYY-MM-DD) — ריצות הטיפים של פסאו רצפה (4281), העובדים בכל ריצה
-// (שם מלא, תא, משמרת, תפקיד), ערך "גביית אוכל" (משתנה 28859) הקיים, והאם הריצה נעולה. לא כותב כלום.
+// קריאה בלבד: לכל תאריך ב-?dates=YYYY-MM-DD,YYYY-MM-DD — עובדי פסאו רצפה (4281) שהחתימו (שם, משמרת, תפקיד, שעות, תא),
+// ריצות הטיפים (נעילה/mode), וערכי "גביית אוכל" (28859) קיימים. לא כותב כלום.
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const BASE = "https://app.shiftorganizer.com";
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 const F_APP = 4281, FOOD = 28859;
 const TIPS: Record<number, string> = { 3594: "בוקר", 3595: "ערב", 3798: "סושי בוקר", 3656: "סושי ערב" };
+const SH: Record<number, string> = { 16650: "פתיחה", 16651: "בוקר", 16647: "פתיחה ערב", 16648: "ערב", 16649: "סגירה", 16652: "SB" };
+const RL: Record<number, string> = { 34749: "מלצר", 34750: "בר", 34751: "אחמש", 34752: "מתלמד מלצר", 34753: "מתלמד בר", 34754: "מארחת", 34756: "מתלמדת מארחת", 35342: "מלצר טאלה", 45481: "ראנר טאלה", 45482: "מתלמד טאלה", 45483: "אחמש טאלה", 50791: "מארחת טאלה", 51036: "בר טאלה", 34755: "מארחת למעלה" };
 
 async function cfg(k: string): Promise<string> { const { data } = await sb.from("app_config").select("value").eq("key", k).maybeSingle(); return data?.value ?? ""; }
 function eat(res: Response, jar: Record<string, string>) {
@@ -39,29 +41,25 @@ Deno.serve(async (req) => {
     const u = new URL(req.url);
     const secret = await cfg("ALFRED_SYNC_SECRET");
     if (!secret || (req.headers.get("x-sync-secret") ?? u.searchParams.get("secret")) !== secret) return new Response("unauthorized", { status: 401 });
-    const date = u.searchParams.get("date") ?? "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return new Response("date=YYYY-MM-DD required", { status: 400 });
+    const dates = (u.searchParams.get("dates") ?? "").split(",").filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
     const jar: Record<string, string> = {};
     if (!(await login(jar))) return new Response(JSON.stringify({ error: "login failed" }), { status: 502 });
-    if (!(await switchApp(jar, F_APP))) return new Response(JSON.stringify({ error: "switch failed" }), { status: 502 });
+    await switchApp(jar, F_APP);
     const g = async (p: string) => rowsOf(await (await fetch(`${BASE}/api/${p}`, { headers: hdrs(jar) })).json().catch(() => []));
-
-    const runs = (await g(`tip-run/?application=${F_APP}&date=${date}`)).filter((r: any) => r.date === date);
-    const vals = (await g(`tips-variable-values/?application=${F_APP}&date=${date}`)).filter((v: any) => v.date === date);
-    const food = vals.filter((v: any) => v.variable === FOOD);
-    const out: any[] = [];
-    for (const r of runs) {
-      const res = (await g(`tip-run-results/?application=${F_APP}&run=${r.id}`)).filter((x: any) => x.run === r.id && x.employee);
-      out.push({ run: r.id, tip: r.tip, tip_name: TIPS[r.tip] ?? String(r.tip), locked: r.is_locked, locked_at: r.locked_at,
-        employees: res.map((x: any) => {
-          const f = food.filter((v: any) => v.employee === x.employee && (v.cell === x.result?.cell_id || !v.cell));
-          return { emp: x.employee, name: x.result?.employee, cell: x.result?.cell_id, shift: x.result?.shift, role: x.result?.role,
-            start: String(x.result?.start ?? "").slice(11, 16), end: String(x.result?.end ?? "").slice(11, 16), food_now: f.map((v: any) => v.value) };
-        }) });
+    const cells = await g("cells/");
+    const out: Record<string, any> = {};
+    for (const date of dates) {
+      const day = cells.filter((c: any) => String(c.date).slice(0, 10) === date && !c.is_deleted && c.employee && (c.clock_start || c.manual_start))
+        .sort((a: any, b: any) => String(a.clock_start ?? a.manual_start).localeCompare(String(b.clock_start ?? b.manual_start)));
+      const runs = (await g(`tip-run/?application=${F_APP}&date=${date}`)).filter((r: any) => r.date === date);
+      const food = (await g(`tips-variable-values/?application=${F_APP}&date=${date}`)).filter((v: any) => v.date === date && v.variable === FOOD);
+      out[date] = {
+        runs: runs.map((r: any) => `${TIPS[r.tip] ?? r.tip} run${r.id} mode${r.mode} ${r.is_locked ? "נעול" : "פתוח"}`),
+        worked: day.map((c: any) => `${String(c.clock_start ?? c.manual_start).slice(0, 5)}-${String(c.clock_end ?? c.manual_end ?? "").slice(0, 5)} | ${c.first_name} ${c.last_name} | ${SH[c.shift] ?? c.shift} | ${RL[c.role] ?? c.role} | emp${c.employee} cell${c.id}`),
+        food: food.map((v: any) => `${TIPS[v.tip] ?? v.tip} emp${v.employee} cell${v.cell} v=${v.value}`),
+      };
     }
-    const orphanFood = food.filter((v: any) => !out.some((r: any) => r.employees.some((e: any) => e.emp === v.employee))).map((v: any) => `emp${v.employee} cell${v.cell} tip${v.tip} v=${v.value}`);
-    return new Response(JSON.stringify({ date, runs: out, food_rows_total: food.length, food_without_run: orphanFood, food_row_keys: food[0] ? Object.keys(food[0]) : [] }, null, 1),
-      { headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(out, null, 1), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
   }
