@@ -58,7 +58,8 @@ Deno.serve(async (req) => {
       for (const s of await g(`shifts/?application=${app}`)) shifts[s.id] = s.name;
       const cells = await g("cells/");
       for (const date of dates) {
-        const day = cells.filter((c: any) => String(c.date).slice(0, 10) === date && !c.is_deleted && c.employee);
+        const only = (u.searchParams.get("emps") ?? "").split(",").filter(Boolean).map(Number);
+        const day = cells.filter((c: any) => String(c.date).slice(0, 10) === date && !c.is_deleted && c.employee && (!only.length || only.includes(c.employee)));
         if (u.searchParams.get("keys") && day[0]) out[`keys_${app}`] = Object.keys(day[0]);
         (out[date] ??= {})[appName] = day.map((c: any) => {
           const s = c.clock_start ?? c.manual_start, e = c.clock_end ?? c.manual_end;
@@ -67,6 +68,7 @@ Deno.serve(async (req) => {
             role: roles[c.role] ?? c.role, shift: shifts[c.shift] ?? c.shift,
             plan: `${hm(c.start)}-${hm(c.end)}`, actual: s ? `${hm(s)}-${hm(e)}` : "", hours: hours(s, e),
             manual: !c.clock_start && !!c.manual_start, note: c.note ?? c.comment ?? "",
+            ...(u.searchParams.get("raw") ? { raw: { cs: c.clock_start_full, ce: c.clock_end_full, ms: c.manual_start_full, me: c.manual_end_full, cut_s: c.cut_start, cut_e: c.cut_end, brk: c.break_duration, wait: c.waiting, ps: c.planned_start_full, pe: c.planned_end_full, absence: c.absence, work_code: c.work_code, extras: c.extras } } : {}),
           };
         }).sort((a: any, b: any) => String(a.actual || a.plan).localeCompare(String(b.actual || b.plan)));
       }
