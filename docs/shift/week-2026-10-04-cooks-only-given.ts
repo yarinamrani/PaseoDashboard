@@ -7,6 +7,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // ירין 02/10: אביעד במוצ"ש מ-17:00 (לא 19:00).
 // ירין 02/10: מאיר — א' חופש, ב'–ו' עובד, ש' בוקר או חופש → ב',ג',ה' בוקר 10:30 · ד' ערב 17:00 · ו' פתיחה 08:00 · ש' פתיחה 09:00.
 // ירין 02/10: בבקרים מולו + עידו → ב',ג',ה' מולו בוקר 10:30, מאיר עובר לערב 17:00.
+// ירין 02/10: טאלה יוצאת מהסידור (אביעד + חורי טאלה נמחקים). מולו כמה שאפשר, כפולות ב'–ו': ערב 18:00 ב'–ה', ו' 13:00 + 17:00.
 // Reconcile מול ROWS על תפקיד טבח בלבד ברוטה 886527 (טיוטה). לא נוגע בשוטפים. לא מפרסם.
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const BASE = "https://app.shiftorganizer.com";
@@ -20,25 +21,25 @@ const OPEN = "פתיחה", GAP = "חסר טבח", GAPO = "חסר טבח · פת�
 type Row = [number, number, number | null, string, string];
 const ROWS: Row[] = [
   [0, B, C.IDO, "10:00", OPEN], [0, B, null, "10:30", GAP],
-  [0, E, C.YAAKOV, "16:00", ""], [0, E, null, "17:00", GAP], [0, E, C.AVIAD, "17:00", T],
+  [0, E, C.YAAKOV, "16:00", ""], [0, E, null, "17:00", GAP],
 
   [1, B, C.IDO, "10:00", OPEN], [1, B, C.MOLU, "10:30", ""],
-  [1, E, C.YAAKOV, "16:00", ""], [1, E, C.MEIR, "17:00", ""], [1, E, C.BENNY, "18:00", ""], [1, E, null, "17:00", TGAP],
+  [1, E, C.YAAKOV, "16:00", ""], [1, E, C.MEIR, "17:00", ""], [1, E, C.BENNY, "18:00", ""], [1, E, C.MOLU, "18:00", ""],
 
   [2, B, C.IDO, "10:00", OPEN], [2, B, C.MOLU, "10:30", ""],
-  [2, E, C.BENNY, "15:00", ""], [2, E, C.YAAKOV, "16:00", ""], [2, E, C.MEIR, "17:00", ""], [2, E, null, "17:00", TGAP],
+  [2, E, C.BENNY, "15:00", ""], [2, E, C.YAAKOV, "16:00", ""], [2, E, C.MEIR, "17:00", ""], [2, E, C.MOLU, "18:00", ""],
 
   [3, B, C.IDO, "10:00", OPEN], [3, B, C.MOLU, "10:30", ""],
-  [3, E, C.BENNY, "16:00", ""], [3, E, C.MEIR, "17:00", ""], [3, E, C.MOLU, "18:00", ""], [3, E, C.AVIAD, "17:00", T],
+  [3, E, C.BENNY, "16:00", ""], [3, E, C.MEIR, "17:00", ""], [3, E, C.MOLU, "18:00", ""],
 
   [4, B, C.IDO, "10:00", OPEN], [4, B, C.MOLU, "10:30", ""], [4, B, C.BENNY, "15:00", ""],
-  [4, E, C.YAAKOV, "16:00", ""], [4, E, C.MEIR, "17:00", ""], [4, E, C.BENNY, "18:00", ""], [4, E, C.AVIAD, "17:00", T],
+  [4, E, C.YAAKOV, "16:00", ""], [4, E, C.MEIR, "17:00", ""], [4, E, C.BENNY, "18:00", ""], [4, E, C.MOLU, "18:00", ""],
 
-  [5, B, C.MEIR, "08:00", OPEN], [5, B, C.YAAKOV, "10:00", ""], [5, B, C.BENNY, "11:00", ""], [5, B, null, "13:00", GAP],
+  [5, B, C.MEIR, "08:00", OPEN], [5, B, C.YAAKOV, "10:00", ""], [5, B, C.BENNY, "11:00", ""], [5, B, C.MOLU, "13:00", ""],
   [5, E, null, "17:00", GAP], [5, E, C.MOLU, "17:00", ""], [5, E, C.BENNY, "18:00", ""],
 
   [6, B, C.MEIR, "09:00", OPEN], [6, B, null, "10:00", GAP], [6, B, C.BENNY, "11:00", ""],
-  [6, E, C.YAAKOV, "16:00", ""], [6, E, null, "17:00", GAP], [6, E, C.BENNY, "18:00", ""], [6, E, C.AVIAD, "17:00", T],
+  [6, E, C.YAAKOV, "16:00", ""], [6, E, null, "17:00", GAP], [6, E, C.BENNY, "18:00", ""],
 ];
 
 async function cfg(k: string): Promise<string> {
