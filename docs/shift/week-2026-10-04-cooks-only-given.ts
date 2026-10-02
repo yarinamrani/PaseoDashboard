@@ -4,6 +4,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // טבחי פסאו 04/10–10/10 — ירין 02/10: "תמלא רק מה שאני שולח". מאיר לא הגיש, אמג'ד לא עונה →
 // כל התאים שלהם הופכים ל"חסר טבח" (פתיחות: "חסר טבח · פתיחה"). נשאר רק מה שירין מסר:
 // יעקב, בני (רגיל, חופש א'), עידו (בוקר א'–ה'), מולו (חופש א'+ש', כפולות מותר), אביעד (א', ד', ה', מוצ"ש בטאלה).
+// ירין 02/10: אביעד במוצ"ש מ-17:00 (לא 19:00).
 // Reconcile מול ROWS על תפקיד טבח בלבד ברוטה 886527 (טיוטה). לא נוגע בשוטפים. לא מפרסם.
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const BASE = "https://app.shiftorganizer.com";
@@ -35,7 +36,7 @@ const ROWS: Row[] = [
   [5, E, null, "17:00", GAP], [5, E, C.MOLU, "17:00", ""], [5, E, C.BENNY, "18:00", ""],
 
   [6, B, null, "09:00", GAPO], [6, B, null, "10:00", GAP], [6, B, C.BENNY, "11:00", ""],
-  [6, E, C.YAAKOV, "16:00", ""], [6, E, null, "17:00", GAP], [6, E, C.BENNY, "18:00", ""], [6, E, C.AVIAD, "19:00", T],
+  [6, E, C.YAAKOV, "16:00", ""], [6, E, null, "17:00", GAP], [6, E, C.BENNY, "18:00", ""], [6, E, C.AVIAD, "17:00", T],
 ];
 
 async function cfg(k: string): Promise<string> {
