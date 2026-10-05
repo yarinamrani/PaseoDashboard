@@ -1,20 +1,19 @@
 """מאחד דוחות "דוח מפורט" של שיפטאורגנייזר (גיליון לכל עובד) לקובץ שכר אחד.
 
-שימוש:  python3 build_payroll.py <out.xlsx> מטבח=<kitchen.xlsx> [פלור=<floor.xlsx>]
-- גיליון "סיכום שכר": שורה לעובד, מחולק למחלקות (וכוח אדם בנפרד), עם עמודות קלט:
-  בונוס / מפרעה / שכר סופי / נטו-ברוטו.
+שימוש:  python3 build_payroll.py <out.xlsx> מטבח=<kitchen.xlsx> [מטבח=<more.xlsx>] [פלור=<floor.xlsx>]
+- גיליון "סיכום שכר": שורה לעובד, מחולק למחלקות/סניפים (וכוח אדם בנפרד). שעות כמו בשיפט, ולכל עובד
+  סכום אחד — שכר סופי (כולל בונוס), נטו או ברוטו: תעריף נטו × סיכום שעות, או תעריף ברוטו × שעות לפי האחוזים.
+  בלי המרת נטו↔ברוטו ובלי הערכות — זה אצל רואת החשבון.
 - גיליון "פירוט יומי": כל המשמרות מכל הגיליונות, לבדיקה.
+- "<out> - לרואת החשבון.xlsx": שם, חברה, שעות, בונוס, מפרעה, שכר סופי (נטו/ברוטו) — בלי הערות פנימיות.
 קלט אופציונלי (לא נשמר בריפו — נתוני שכר) בקובץ JSON דרך PAYROLL_INPUTS:
   {"exclude": [שמות], "drop_agency": true, "tala_hint": [שמות],
-   "rates": {"שם": [תעריף, "נטו"|"ברוטו"|null, יחס_נטו_לברוטו|null, "מקור"]}, "default_ratio": 0.9,
-   "venue": {"שם": "טאלה"},
+   "rates": {"שם": [תעריף, "נטו"|"ברוטו", null|"total", "מקור"]},  ← "total" = תעריף כולל על סיכום שעות; מקור שמתחיל ב"הנחה" נצבע כתום
+   "venue": {"שם": "טאלה"},                                     ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
    "split_rates": {"שם": {"basis": "נטו", "bands": [[1, 4, 60], [5, 7, 65]]}},  ← תעריף לפי יום בשבוע (WEEKDAY: א'=1 … ש'=7)
-   "venue_confirmed": [שמות],
-   "notes": {"שם": "הערה חופשית לעמודת לבדיקה"},
-   "bonus": {"שם": [סכום, "מקור"]},  ← בונוס ידוע מראש (למשל קבוע בתלוש)
-   "target": {"שם": {"per_hour": 65, "basis": "נטו", "hours": "total"|"weighted", "src": "..."}}}
-     ← שכר סופי = תעריף יעד × שעות (סיכום שעות, או weighted = לפי אחוזים); רואת החשבון מגלמת  ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
-בנוסף נכתב "<out> - לרואת החשבון.xlsx": שם, חברה, שעות כמו בשיפט, נטו סופי (או תעריף ברוטו), מפרעה — בלי הערכות.
+   "venue_confirmed": [שמות],                                   ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)
+   "notes": {"שם": "הערה לעמודת לבדיקה"},
+   "bonus": {"שם": [סכום, "מקור"]}}
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -96,8 +95,7 @@ def compact_issues(issues):
     return " · ".join(out)
 
 
-def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio=0.9, split_rates=None, venue_ok=(), notes=None, bonus=None, target=None):
-    target = target or {}
+def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=None, venue_ok=(), notes=None, bonus=None):
     notes = notes or {}
     bonus = bonus or {}
     rates = rates or {}
@@ -120,9 +118,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
 
     cols = ["#", "שם עובד", "מזהה שעון", "תפקידים", "חברה בתלוש", "ימי עבודה", "משמרות",
             "רגילות", "125%", "150%", "שבת/חג", "מיוחד 200%", "סיכום",
-            "תעריף שעתי (₪)", "בסיס תעריף", "יחס נטו/ברוטו", "ברוטו צפוי (₪)", "נטו צפוי (₪)",
-            "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו", "לבדיקה"]
-    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 9, 10, 10, 9, 9, 12, 12, 11, 11, 12, 11, 60]
+            "תעריף שעתי (₪)", "נטו / ברוטו", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "לבדיקה"]
+    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 9, 10, 10, 9, 10, 10, 13, 60]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[L(i)].width = w
     C = {c: i + 1 for i, c in enumerate(cols)}
@@ -131,15 +128,11 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
     month = next((e["month"] for d in depts.values() for e in d if e["month"]), "")
     ws["A1"] = f"שכר — שעות עבודה {month}"
     ws["A1"].font = Font(name=F, size=14, bold=True)
-    ws["A2"] = ("מקור: שיפטאורגנייזר, דוח מפורט (05/10/2026). שעות = כחול (מהדוח, לא לשנות). "
-                "תאים צהובים = למילוי: תעריף שעתי, בונוס ידוע מראש, מפרעה לקיזוז, שכר סופי שרוצים שייצא בתלוש + נטו/ברוטו. "
-                "עמודות השעות כמו בשיפט. בחישוב השכר כל עמודה מוכפלת באחוז שלה: רגילות×1, 125%×1.25, 150%×1.5, שבת/חג×1.5, מיוחד 200%×2 (הנחה: שבת/חג משולם 150%). "
-                "ברוטו/נטו צפוי — הערכה ±: תעריף ברוטו → ברוטו = תעריף×שעות לפי האחוזים + נסיעות (16 ₪ ליום, עד 315) + הבראה (2 ₪ לשעה רגילה) + בונוס, "
-                "נטו = ברוטו × יחס נטו/ברוטו (מתלוש אוגוסט ב-BUK, או 0.90 כברירת מחדל) − מפרעה. "
-                "תעריף נטו → נטו = תעריף×שעות לפי האחוזים + בונוס − מפרעה, ברוטו ≈ נטו ÷ יחס. "
-                "תעריפים בכחול = נגזרו מתלוש אוגוסט (משכורת ÷ שעות); בכתום = הנחה, לאשר. "
-                "שכר סופי מולא = זה מה שהעובד מקבל (נטו/ברוטו לפי הבחירה; ריק = נטו), והצפי נגזר ממנו; רואת החשבון מגלמת. "
-                "בונוס בעובד שכרו בברוטו = ברוטו; בעובד שכרו בנטו = נטו. לרואת החשבון — הקובץ הנפרד (נטו סופי / תעריף, בלי הערכות).")
+    ws["A2"] = ("מקור: שיפטאורגנייזר, דוח מפורט. שעות = כחול (מהדוח, לא לשנות). תאים צהובים = למילוי: תעריף, נטו/ברוטו, בונוס, מפרעה. "
+                "שכר סופי (כולל בונוס), נטו או ברוטו לפי העמודה נטו/ברוטו: "
+                "תעריף נטו → תעריף × סיכום שעות + בונוס. "
+                "תעריף ברוטו → תעריף × שעות לפי האחוזים (רגילות×1, 125%×1.25, 150%×1.5, שבת/חג×1.5, מיוחד 200%×2) + בונוס. "
+                "מפרעה — לקיזוז בתלוש, לא נכללת בסכום. אין המרה בין נטו לברוטו — זה אצל רואת החשבון.")
     ws["A2"].font = Font(name=F, size=9, italic=True)
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(cols))
 
@@ -183,46 +176,34 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
             H = lambda k: f"{L(C[k])}{r}"
             # שעות לפי אחוזים — בתוך הנוסחה, בלי עמודת עזר
             paid = f"({H('רגילות')}+1.25*{H('125%')}+1.5*{H('150%')}+1.5*{H('שבת/חג')}+2*{H('מיוחד 200%')})"
-            rate, basis, ratio, src = (list(rates.get(e["name"]) or []) + [None] * 4)[:4]
+            rate, basis, hmode, src = (list(rates.get(e["name"]) or []) + [None] * 4)[:4]
             ws.cell(r, C["תעריף שעתי (₪)"], rate)
-            ws.cell(r, C["בסיס תעריף"], basis)
-            ws.cell(r, C["יחס נטו/ברוטו"], ratio if ratio else default_ratio)
-            if e["name"] in target:
-                tg = target[e["name"]]
-                hrs = H("סיכום") if tg.get("hours", "total") == "total" else paid
-                ws.cell(r, C["שכר סופי (₪)"], f"={tg['per_hour']}*{hrs}")
-                ws.cell(r, C["שכר סופי (₪)"]).comment = Comment(tg.get("src", ""), "Claude")
-                ws.cell(r, C["נטו / ברוטו"], tg.get("basis", "נטו"))
+            ws.cell(r, C["נטו / ברוטו"], basis)
             if e["name"] in bonus:
                 ws.cell(r, C["בונוס (₪)"], bonus[e["name"]][0])
                 ws.cell(r, C["בונוס (₪)"]).comment = Comment(bonus[e["name"]][1], "Claude")
-            O, P, Q, N = H("תעריף שעתי (₪)"), H("בסיס תעריף"), H("יחס נטו/ברוטו"), paid
-            F_, H_, V, W = H("ימי עבודה"), H("רגילות"), H("בונוס (₪)"), H("מפרעה (₪)")
-            gross_base = f"({O}*{N}+MIN(315,16*{F_})+2*{H_}+{V})"
-            R_, S_, X_, Y_ = H("ברוטו צפוי (₪)"), H("נטו צפוי (₪)"), H("שכר סופי (₪)"), H("נטו / ברוטו")
-            # שכר סופי מולא → הוא קובע (נטו: ברוטו ≈ נטו ÷ יחס; ברוטו: נטו ≈ ברוטו × יחס). אחרת — לפי תעריף.
-            fin_g = f'IF({Y_}="ברוטו",{X_},{X_}/{Q})'
-            fin_n = f'IF({Y_}="ברוטו",{X_}*{Q},{X_})-{W}'
-            ws.cell(r, C["ברוטו צפוי (₪)"], f'=IF({X_}<>"",{fin_g},IF({O}="","",IF({P}="נטו",({O}*{N}+{V})/{Q},{gross_base})))')
-            ws.cell(r, C["נטו צפוי (₪)"], f'=IF({X_}<>"",{fin_n},IF({O}="","",IF({P}="נטו",{O}*{N}+{V},{gross_base}*{Q})-{W}))')
+            O, P, V = H("תעריף שעתי (₪)"), H("נטו / ברוטו"), H("בונוס (₪)")
+            # hmode "total" = תעריף כולל (למשל מתלוש קודם ÷ שעות) → על סיכום השעות בלי אחוזים
+            hrs = f'{O}*{H("סיכום")}' if hmode == "total" else f'IF({P}="נטו",{O}*{H("סיכום")},{O}*{paid})'
+            ws.cell(r, C["שכר סופי (₪)"], f'=IF({O}="","",{hrs}+{V})')
             if e["name"] in split_rates:
                 sr = split_rates[e["name"]]
                 rng = lambda c: f"'פירוט יומי'!${c}$2:${c}${daily_rows + 1}"
                 parts = [f"{rt}*SUMPRODUCT(({rng('B')}={H('שם עובד')})*(WEEKDAY({rng('D')})>={lo})*(WEEKDAY({rng('D')})<={hi})*{rng('R')})"
                          for lo, hi, rt in sr["bands"]]
-                net = "+".join(parts)
                 ws.cell(r, C["תעריף שעתי (₪)"], sr["bands"][0][2])
                 ws.cell(r, C["תעריף שעתי (₪)"]).comment = Comment(
                     "תעריף לפי יום: " + ", ".join(f"{'אבגדהוש'[lo-1]}'–{'אבגדהוש'[hi-1]}' {rt}" for lo, hi, rt in sr["bands"]) +
-                    f" ({sr['basis']}), לפי שעות סה\"כ ביום בגיליון הפירוט, בלי תוספות שעות נוספות.", "Claude")
-                ws.cell(r, C["בסיס תעריף"], sr["basis"])
-                ws.cell(r, C["נטו צפוי (₪)"], f'=IF({X_}<>"",{fin_n},{net}+{V}-{W})')
-                ws.cell(r, C["ברוטו צפוי (₪)"], f'=IF({X_}<>"",{fin_g},({net}+{V})/{Q})')
+                    f" ({sr['basis']}), לפי סיכום שעות ביום בגיליון הפירוט.", "Claude")
+                ws.cell(r, C["נטו / ברוטו"], sr["basis"])
+                tot = "+".join(parts)
+                ws.cell(r, C["שכר סופי (₪)"], f"={tot}+{V}")
             rate_note = None
             if rate is not None and src:
                 ws.cell(r, C["תעריף שעתי (₪)"]).comment = Comment(src, "Claude")
             if rate is not None and not basis:
                 rate_note = "לא צוין אם התעריף נטו או ברוטו — חושב כברוטו"
+                ws.cell(r, C["נטו / ברוטו"], "ברוטו")
             assumed = bool(src and src.startswith("הנחה"))
             issues = compact_issues([x for x in e["issues"] if not (e["name"] in venue_ok and OTHER_VENUE.search(x))])
             if t["סיכום"] == 0:
@@ -244,24 +225,22 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
                 ws.cell(r, C["תעריף שעתי (₪)"]).font = blue
                 if grey:
                     x.fill = agf
-            for k in ["תעריף שעתי (₪)", "בסיס תעריף", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו"] + ([] if co else ["חברה בתלוש"]):
+            for k in ["תעריף שעתי (₪)", "נטו / ברוטו", "בונוס (₪)", "מפרעה (₪)"] + ([] if co else ["חברה בתלוש"]):
                 if not grey:
                     ws.cell(r, C[k]).fill = inp
             if assumed:
                 ws.cell(r, C["תעריף שעתי (₪)"]).fill = PatternFill("solid", fgColor="F8CBAD")
-            ws.cell(r, C["יחס נטו/ברוטו"]).number_format = "0.00"
             for k in HCOLS + ["סיכום"]:
                 ws.cell(r, C[k]).number_format = '0.00;-0.00;"-"'
-            for k in ["תעריף שעתי (₪)", "ברוטו צפוי (₪)", "נטו צפוי (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
+            for k in ["תעריף שעתי (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
                 ws.cell(r, C[k]).number_format = '#,##0;-#,##0;"-"'
             ws.cell(r, C["לבדיקה"]).alignment = Alignment(wrap_text=True, vertical="top")
             dv_co.add(ws.cell(r, C["חברה בתלוש"]))
             dv_nb.add(ws.cell(r, C["נטו / ברוטו"]))
-            dv_nb.add(ws.cell(r, C["בסיס תעריף"]))
             r += 1
         last = r - 1
         ws.cell(r, C["שם עובד"], f'סה"כ {title}').font = bold
-        for k in ["ימי עבודה", "משמרות"] + HCOLS + ["סיכום", "ברוטו צפוי (₪)", "נטו צפוי (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
+        for k in ["ימי עבודה", "משמרות"] + HCOLS + ["סיכום", "בונוס (₪)", "מפרעה (₪)"]:
             x = ws.cell(r, C[k], f"=SUM({L(C[k])}{first}:{L(C[k])}{last})")
             x.font = bold
             x.number_format = '#,##0;-#,##0;"-"' if "₪" in k else ('0;-0;"-"' if k in ("ימי עבודה", "משמרות") else '#,##0.00;-#,##0.00;"-"')
@@ -269,13 +248,13 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
             ws.cell(r, c).fill = sub
             ws.cell(r, c).border = box
         subtotal_rows.append(r)
-        # עלות מעביד משוערת: ברוטו + ~20% (פנסיה 6.5%, פיצויים 6%, ביטוח לאומי ~7.6% מעל התקרה המופחתת — עיגול)
-        r += 1
-        ws.cell(r, C["שם עובד"], "עלות מעביד משוערת (ברוטו × 1.20)").font = Font(name=F, size=10, italic=True)
-        x = ws.cell(r, C["ברוטו צפוי (₪)"], f"={L(C['ברוטו צפוי (₪)'])}{r - 1}*1.2")
-        x.number_format = '#,##0;-#,##0;"-"'
-        x.font = Font(name=F, size=10, italic=True)
-        x.comment = Comment("הנחה: תוספת מעביד ~20% (פנסיה 6.5%, פיצויים 6%, ביטוח לאומי). לבדוק מול רואת החשבון.", "Claude")
+        rng = lambda k: f"{L(C[k])}{first}:{L(C[k])}{last}"
+        for lbl, crit in (("נטו", '"נטו"'), ("ברוטו", '"<>נטו"')):
+            r += 1
+            ws.cell(r, C["שם עובד"], f"סה\"כ שכר סופי — {lbl}").font = Font(name=F, size=10, italic=True)
+            x = ws.cell(r, C["שכר סופי (₪)"], f'=SUMIF({rng("נטו / ברוטו")},{crit},{rng("שכר סופי (₪)")})')
+            x.number_format = '#,##0;-#,##0;"-"'
+            x.font = bold
         r += 2
 
     for dept, emps in depts.items():
@@ -336,7 +315,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
 def accountant_file(out):
     """קובץ נקי לרואת החשבון, מתוך הערכים המחושבים של קובץ השכר: מה שהעובד צריך לקבל, בלי בונוס/יחס/ברוטו משוער."""
     src = openpyxl.load_workbook(out, data_only=True)["סיכום שכר"]
-    if src["R6"].value is None and src["Q6"].value is None:
+    if not any(isinstance(c.value, (int, float)) for row in src.iter_rows(min_row=6) for c in row[17:18]):
         print("אין ערכים מחושבים (pycel חסר) — קובץ רואת החשבון לא נוצר")
         return
     F = "Arial"
@@ -351,26 +330,16 @@ def accountant_file(out):
             sections.append(cur)
         elif isinstance(a, int) and cur:
             g = lambda k: src.cell(r, hdr[k]).value
-            fin, kind = num(g("שכר סופי (₪)")), g("נטו / ברוטו")
-            net = gross = rate = bonus = None
-            if fin is not None and kind == "ברוטו":
-                gross = fin
-            elif fin is not None:
-                net = fin
-            elif g("בסיס תעריף") == "נטו" and num(g("נטו צפוי (₪)")) is not None:
-                net = g("נטו צפוי (₪)") + (num(g("מפרעה (₪)")) or 0)
-            else:
-                rate, bonus = num(g("תעריף שעתי (₪)")), num(g("בונוס (₪)"))
+            fin = num(g("שכר סופי (₪)"))
             cur[1].append({"שם עובד": b, "חברה בתלוש": g("חברה בתלוש"), "ימי עבודה": g("ימי עבודה"),
                            **{k: num(g(k)) for k in HCOLS_ACC}, "סיכום": num(g("סיכום")),
-                           "נטו סופי (₪)": round(net) if net is not None else None,
-                           "ברוטו סופי (₪)": round(gross) if gross is not None else None,
-                           "תעריף ברוטו לשעה (₪)": rate, "בונוס ברוטו (₪)": bonus,
-                           "מפרעה לקיזוז (₪)": num(g("מפרעה (₪)"))})
+                           "בונוס (₪)": num(g("בונוס (₪)")), "מפרעה (₪)": num(g("מפרעה (₪)")),
+                           "שכר סופי (₪)": round(fin) if fin is not None else None,
+                           "נטו / ברוטו": g("נטו / ברוטו") if fin is not None else None})
     rows = [e for _, es in sections for e in es]
-    cols = ["#", "שם עובד", "חברה בתלוש", "ימי עבודה"] + HCOLS_ACC + ["סיכום", "נטו סופי (₪)", "ברוטו סופי (₪)",
-            "תעריף ברוטו לשעה (₪)", "בונוס ברוטו (₪)", "מפרעה לקיזוז (₪)"]
-    cols = [c for c in cols if c in ("#", "שם עובד", "נטו סופי (₪)", "מפרעה לקיזוז (₪)") or any(e.get(c) not in (None, "", 0) for e in rows)]
+    cols = ["#", "שם עובד", "חברה בתלוש", "ימי עבודה"] + HCOLS_ACC + ["סיכום", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו"]
+    keep = ("#", "שם עובד", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו")
+    cols = [c for c in cols if c in keep or any(e.get(c) not in (None, "", 0) for e in rows)]
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "שכר"
@@ -382,8 +351,8 @@ def accountant_file(out):
     month = (src["A1"].value or "").replace("שכר — ", "")
     ws["A1"] = f"שכר — {month}"
     ws["A1"].font = Font(name=F, size=14, bold=True)
-    ws["A2"] = ("שעות: דוח מפורט משיפטאורגנייזר. נטו סופי = הסכום שהעובד צריך לקבל ביד (לפני קיזוז מפרעה) — לגלם. "
-                "תעריף ברוטו = לחשב לפי השעות.")
+    ws["A2"] = ("שעות: דוח מפורט משיפטאורגנייזר. שכר סופי = כולל הבונוס; נטו = מה שהעובד צריך לקבל ביד, ברוטו = ברוטו בתלוש. "
+                "מפרעה — לקזז.")
     ws["A2"].font = Font(name=F, size=9, italic=True)
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(cols))
     for i, c in enumerate(cols, 1):
@@ -407,7 +376,7 @@ def accountant_file(out):
         for n, e in enumerate(es, 1):
             for c, name in enumerate(cols, 1):
                 x = ws.cell(r, c, n if name == "#" else e.get(name))
-                x.font = Font(name=F, size=10, bold=name == "נטו סופי (₪)")
+                x.font = Font(name=F, size=10, bold=name in ("שכר סופי (₪)", "נטו / ברוטו"))
                 x.border = box
                 if name in HCOLS_ACC + ["סיכום"]:
                     x.number_format = '0.00;-0.00;""'
@@ -416,13 +385,21 @@ def accountant_file(out):
             r += 1
         ws.cell(r, cols.index("שם עובד") + 1, f'סה"כ {title}').font = Font(name=F, size=10, bold=True)
         for c, name in enumerate(cols, 1):
-            if name in ["ימי עבודה", "סיכום", "נטו סופי (₪)", "ברוטו סופי (₪)", "בונוס ברוטו (₪)", "מפרעה לקיזוז (₪)"] + HCOLS_ACC:
-                tot = sum(e.get(name) or 0 for e in es)
-                x = ws.cell(r, c, round(tot, 2))
+            if name in ["ימי עבודה", "סיכום", "בונוס (₪)", "מפרעה (₪)"] + HCOLS_ACC:
+                x = ws.cell(r, c, round(sum(e.get(name) or 0 for e in es), 2))
                 x.font = Font(name=F, size=10, bold=True)
                 x.number_format = '#,##0;-#,##0;""' if "₪" in name or name == "ימי עבודה" else '#,##0.00;-#,##0.00;""'
             ws.cell(r, c).fill = head
             ws.cell(r, c).border = box
+        for lbl in ("נטו", "ברוטו"):
+            tot = sum(e["שכר סופי (₪)"] or 0 for e in es if e["נטו / ברוטו"] == lbl or (lbl == "ברוטו" and e["נטו / ברוטו"] not in (None, "נטו")))
+            if tot:
+                r += 1
+                ws.cell(r, cols.index("שם עובד") + 1, f'סה"כ שכר סופי — {lbl}').font = Font(name=F, size=10, italic=True)
+                x = ws.cell(r, cols.index("שכר סופי (₪)") + 1, tot)
+                x.font = Font(name=F, size=10, bold=True)
+                x.number_format = '#,##0'
+                ws.cell(r, cols.index("נטו / ברוטו") + 1, lbl).font = Font(name=F, size=10, bold=True)
         r += 2
     ws.freeze_panes = "C4"
     acc = re.sub(r"\.xlsx$", "", out) + " - לרואת החשבון.xlsx"
@@ -518,5 +495,5 @@ if __name__ == "__main__":
             split[k] = emps
     depts = split
     build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False),
-          inp.get("default_ratio", 0.9), inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])),
-          inp.get("notes", {}), inp.get("bonus", {}), inp.get("target", {}))
+          inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])),
+          inp.get("notes", {}), inp.get("bonus", {}))
