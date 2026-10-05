@@ -13,7 +13,8 @@
    "notes": {"שם": "הערה חופשית לעמודת לבדיקה"},
    "bonus": {"שם": [סכום, "מקור"]},  ← בונוס ידוע מראש (למשל קבוע בתלוש)
    "target": {"שם": {"per_hour": 65, "basis": "נטו", "hours": "total"|"weighted", "src": "..."}}}
-     ← שכר סופי = תעריף יעד × שעות (סיכום שעות, או weighted = לפי אחוזים); עמודת "בונוס נדרש ליעד" משלימה אליו  ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
+     ← שכר סופי = תעריף יעד × שעות (סיכום שעות, או weighted = לפי אחוזים); רואת החשבון מגלמת  ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
+בנוסף נכתב "<out> - לרואת החשבון.xlsx": שם, חברה, שעות כמו בשיפט, נטו סופי (או תעריף ברוטו), מפרעה — בלי הערכות.
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -24,6 +25,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter as L
 
 BUCKETS = ["רגילות", "125%", "150%", "שבת/חג", "מיוחד 200%"]
+HCOLS_ACC = ["רגילות", "125%", "150%", "שבת/חג", "מיוחד 200%"]
 OTHER_VENUE = re.compile(r"(tala|טאלה|umino|אומינו)", re.I)
 LONG_SHIFT_H = 14
 
@@ -119,8 +121,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
     cols = ["#", "שם עובד", "מזהה שעון", "תפקידים", "חברה בתלוש", "ימי עבודה", "משמרות",
             "רגילות", "125%", "150%", "שבת/חג", "מיוחד 200%", "סיכום",
             "תעריף שעתי (₪)", "בסיס תעריף", "יחס נטו/ברוטו", "ברוטו צפוי (₪)", "נטו צפוי (₪)",
-            "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו", "בונוס נדרש ליעד (₪)", "לבדיקה"]
-    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 9, 10, 10, 9, 9, 12, 12, 11, 11, 12, 11, 13, 60]
+            "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו", "לבדיקה"]
+    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 9, 10, 10, 9, 9, 12, 12, 11, 11, 12, 11, 60]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[L(i)].width = w
     C = {c: i + 1 for i, c in enumerate(cols)}
@@ -136,8 +138,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
                 "נטו = ברוטו × יחס נטו/ברוטו (מתלוש אוגוסט ב-BUK, או 0.90 כברירת מחדל) − מפרעה. "
                 "תעריף נטו → נטו = תעריף×שעות לפי האחוזים + בונוס − מפרעה, ברוטו ≈ נטו ÷ יחס. "
                 "תעריפים בכחול = נגזרו מתלוש אוגוסט (משכורת ÷ שעות); בכתום = הנחה, לאשר. "
-                "בונוס נדרש ליעד = כמה בונוס צריך כדי שהתלוש ייצא בדיוק 'שכר סופי' (נטו/ברוטו לפי הבחירה; ריק = נטו), "
-                "אחרי מפרעה. בונוס בעובד שכרו בברוטו = ברוטו; בעובד שכרו בנטו = נטו.")
+                "שכר סופי מולא = זה מה שהעובד מקבל (נטו/ברוטו לפי הבחירה; ריק = נטו), והצפי נגזר ממנו; רואת החשבון מגלמת. "
+                "בונוס בעובד שכרו בברוטו = ברוטו; בעובד שכרו בנטו = נטו. לרואת החשבון — הקובץ הנפרד (נטו סופי / תעריף, בלי הערכות).")
     ws["A2"].font = Font(name=F, size=9, italic=True)
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(cols))
 
@@ -197,13 +199,12 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
             O, P, Q, N = H("תעריף שעתי (₪)"), H("בסיס תעריף"), H("יחס נטו/ברוטו"), paid
             F_, H_, V, W = H("ימי עבודה"), H("רגילות"), H("בונוס (₪)"), H("מפרעה (₪)")
             gross_base = f"({O}*{N}+MIN(315,16*{F_})+2*{H_}+{V})"
-            ws.cell(r, C["ברוטו צפוי (₪)"], f'=IF({O}="","",IF({P}="נטו",({O}*{N}+{V})/{Q},{gross_base}))')
-            ws.cell(r, C["נטו צפוי (₪)"], f'=IF({O}="","",IF({P}="נטו",{O}*{N}+{V},{gross_base}*{Q})-{W})')
-            # בונוס שמביא את התלוש בדיוק ליעד שבעמודת "שכר סופי" (V=בונוס, W=מפרעה כאן; X=יעד, Y=נטו/ברוטו)
             R_, S_, X_, Y_ = H("ברוטו צפוי (₪)"), H("נטו צפוי (₪)"), H("שכר סופי (₪)"), H("נטו / ברוטו")
-            ws.cell(r, C["בונוס נדרש ליעד (₪)"],
-                    f'=IF(OR({X_}="",{O}=""),"",IF({P}="נטו",IF({Y_}="ברוטו",{X_}*{Q}-({S_}-{V}+{W}),{X_}-{S_}+{V}),'
-                    f'IF({Y_}="ברוטו",{X_}-({R_}-{V}),({X_}+{W})/{Q}-({R_}-{V}))))')
+            # שכר סופי מולא → הוא קובע (נטו: ברוטו ≈ נטו ÷ יחס; ברוטו: נטו ≈ ברוטו × יחס). אחרת — לפי תעריף.
+            fin_g = f'IF({Y_}="ברוטו",{X_},{X_}/{Q})'
+            fin_n = f'IF({Y_}="ברוטו",{X_}*{Q},{X_})-{W}'
+            ws.cell(r, C["ברוטו צפוי (₪)"], f'=IF({X_}<>"",{fin_g},IF({O}="","",IF({P}="נטו",({O}*{N}+{V})/{Q},{gross_base})))')
+            ws.cell(r, C["נטו צפוי (₪)"], f'=IF({X_}<>"",{fin_n},IF({O}="","",IF({P}="נטו",{O}*{N}+{V},{gross_base}*{Q})-{W}))')
             if e["name"] in split_rates:
                 sr = split_rates[e["name"]]
                 rng = lambda c: f"'פירוט יומי'!${c}$2:${c}${daily_rows + 1}"
@@ -215,8 +216,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
                     "תעריף לפי יום: " + ", ".join(f"{'אבגדהוש'[lo-1]}'–{'אבגדהוש'[hi-1]}' {rt}" for lo, hi, rt in sr["bands"]) +
                     f" ({sr['basis']}), לפי שעות סה\"כ ביום בגיליון הפירוט, בלי תוספות שעות נוספות.", "Claude")
                 ws.cell(r, C["בסיס תעריף"], sr["basis"])
-                ws.cell(r, C["נטו צפוי (₪)"], f"={net}+{V}-{W}")
-                ws.cell(r, C["ברוטו צפוי (₪)"], f"=({net}+{V})/{Q}")
+                ws.cell(r, C["נטו צפוי (₪)"], f'=IF({X_}<>"",{fin_n},{net}+{V}-{W})')
+                ws.cell(r, C["ברוטו צפוי (₪)"], f'=IF({X_}<>"",{fin_g},({net}+{V})/{Q})')
             rate_note = None
             if rate is not None and src:
                 ws.cell(r, C["תעריף שעתי (₪)"]).comment = Comment(src, "Claude")
@@ -251,7 +252,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
             ws.cell(r, C["יחס נטו/ברוטו"]).number_format = "0.00"
             for k in HCOLS + ["סיכום"]:
                 ws.cell(r, C[k]).number_format = '0.00;-0.00;"-"'
-            for k in ["תעריף שעתי (₪)", "ברוטו צפוי (₪)", "נטו צפוי (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "בונוס נדרש ליעד (₪)"]:
+            for k in ["תעריף שעתי (₪)", "ברוטו צפוי (₪)", "נטו צפוי (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
                 ws.cell(r, C[k]).number_format = '#,##0;-#,##0;"-"'
             ws.cell(r, C["לבדיקה"]).alignment = Alignment(wrap_text=True, vertical="top")
             dv_co.add(ws.cell(r, C["חברה בתלוש"]))
@@ -329,6 +330,104 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
     wb.calculation = CalcProperties(fullCalcOnLoad=True)
     wb.save(out)
     cache_values(out)
+    accountant_file(out)
+
+
+def accountant_file(out):
+    """קובץ נקי לרואת החשבון, מתוך הערכים המחושבים של קובץ השכר: מה שהעובד צריך לקבל, בלי בונוס/יחס/ברוטו משוער."""
+    src = openpyxl.load_workbook(out, data_only=True)["סיכום שכר"]
+    if src["R6"].value is None and src["Q6"].value is None:
+        print("אין ערכים מחושבים (pycel חסר) — קובץ רואת החשבון לא נוצר")
+        return
+    F = "Arial"
+    num = lambda x: x if isinstance(x, (int, float)) else None
+    sections, cur, hdr = [], None, {}
+    for r in range(4, src.max_row + 1):
+        a, b = src.cell(r, 1).value, src.cell(r, 2).value
+        if a == "#":
+            hdr = {src.cell(r, c).value: c for c in range(1, src.max_column + 1)}
+        elif a and not b and isinstance(a, str):
+            cur = [a, []]
+            sections.append(cur)
+        elif isinstance(a, int) and cur:
+            g = lambda k: src.cell(r, hdr[k]).value
+            fin, kind = num(g("שכר סופי (₪)")), g("נטו / ברוטו")
+            net = gross = rate = bonus = None
+            if fin is not None and kind == "ברוטו":
+                gross = fin
+            elif fin is not None:
+                net = fin
+            elif g("בסיס תעריף") == "נטו" and num(g("נטו צפוי (₪)")) is not None:
+                net = g("נטו צפוי (₪)") + (num(g("מפרעה (₪)")) or 0)
+            else:
+                rate, bonus = num(g("תעריף שעתי (₪)")), num(g("בונוס (₪)"))
+            cur[1].append({"שם עובד": b, "חברה בתלוש": g("חברה בתלוש"), "ימי עבודה": g("ימי עבודה"),
+                           **{k: num(g(k)) for k in HCOLS_ACC}, "סיכום": num(g("סיכום")),
+                           "נטו סופי (₪)": round(net) if net is not None else None,
+                           "ברוטו סופי (₪)": round(gross) if gross is not None else None,
+                           "תעריף ברוטו לשעה (₪)": rate, "בונוס ברוטו (₪)": bonus,
+                           "מפרעה לקיזוז (₪)": num(g("מפרעה (₪)"))})
+    rows = [e for _, es in sections for e in es]
+    cols = ["#", "שם עובד", "חברה בתלוש", "ימי עבודה"] + HCOLS_ACC + ["סיכום", "נטו סופי (₪)", "ברוטו סופי (₪)",
+            "תעריף ברוטו לשעה (₪)", "בונוס ברוטו (₪)", "מפרעה לקיזוז (₪)"]
+    cols = [c for c in cols if c in ("#", "שם עובד", "נטו סופי (₪)", "מפרעה לקיזוז (₪)") or any(e.get(c) not in (None, "", 0) for e in rows)]
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "שכר"
+    ws.sheet_view.rightToLeft = True
+    thin = Side(style="thin", color="BFBFBF")
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head = PatternFill("solid", fgColor="D9E1F2")
+    sec = PatternFill("solid", fgColor="1F3864")
+    month = (src["A1"].value or "").replace("שכר — ", "")
+    ws["A1"] = f"שכר — {month}"
+    ws["A1"].font = Font(name=F, size=14, bold=True)
+    ws["A2"] = ("שעות: דוח מפורט משיפטאורגנייזר. נטו סופי = הסכום שהעובד צריך לקבל ביד (לפני קיזוז מפרעה) — לגלם. "
+                "תעריף ברוטו = לחשב לפי השעות.")
+    ws["A2"].font = Font(name=F, size=9, italic=True)
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(cols))
+    for i, c in enumerate(cols, 1):
+        ws.column_dimensions[L(i)].width = {"#": 4, "שם עובד": 24, "חברה בתלוש": 11}.get(c, 11)
+    r = 4
+    for title, es in sections:
+        if not es:
+            continue
+        ws.cell(r, 1, title).font = Font(name=F, size=12, bold=True, color="FFFFFF")
+        for c in range(1, len(cols) + 1):
+            ws.cell(r, c).fill = sec
+        r += 1
+        for c, name in enumerate(cols, 1):
+            x = ws.cell(r, c, name)
+            x.font = Font(name=F, size=10, bold=True)
+            x.fill = head
+            x.border = box
+            x.alignment = Alignment(horizontal="center", wrap_text=True)
+        r += 1
+        first = r
+        for n, e in enumerate(es, 1):
+            for c, name in enumerate(cols, 1):
+                x = ws.cell(r, c, n if name == "#" else e.get(name))
+                x.font = Font(name=F, size=10, bold=name == "נטו סופי (₪)")
+                x.border = box
+                if name in HCOLS_ACC + ["סיכום"]:
+                    x.number_format = '0.00;-0.00;""'
+                elif "₪" in name:
+                    x.number_format = '#,##0.00;-#,##0.00;""' if "תעריף" in name else '#,##0;-#,##0;""'
+            r += 1
+        ws.cell(r, cols.index("שם עובד") + 1, f'סה"כ {title}').font = Font(name=F, size=10, bold=True)
+        for c, name in enumerate(cols, 1):
+            if name in ["ימי עבודה", "סיכום", "נטו סופי (₪)", "ברוטו סופי (₪)", "בונוס ברוטו (₪)", "מפרעה לקיזוז (₪)"] + HCOLS_ACC:
+                tot = sum(e.get(name) or 0 for e in es)
+                x = ws.cell(r, c, round(tot, 2))
+                x.font = Font(name=F, size=10, bold=True)
+                x.number_format = '#,##0;-#,##0;""' if "₪" in name or name == "ימי עבודה" else '#,##0.00;-#,##0.00;""'
+            ws.cell(r, c).fill = head
+            ws.cell(r, c).border = box
+        r += 2
+    ws.freeze_panes = "C4"
+    acc = re.sub(r"\.xlsx$", "", out) + " - לרואת החשבון.xlsx"
+    wb.save(acc)
+    print(f"קובץ לרואת החשבון: {acc}")
 
 
 def cache_values(out):
