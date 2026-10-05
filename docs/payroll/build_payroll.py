@@ -11,7 +11,9 @@
    "split_rates": {"שם": {"basis": "נטו", "bands": [[1, 4, 60], [5, 7, 65]]}},  ← תעריף לפי יום בשבוע (WEEKDAY: א'=1 … ש'=7)
    "venue_confirmed": [שמות],
    "notes": {"שם": "הערה חופשית לעמודת לבדיקה"},
-   "bonus": {"שם": [סכום, "מקור"]}}  ← בונוס ידוע מראש (למשל קבוע בתלוש)  ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
+   "bonus": {"שם": [סכום, "מקור"]},  ← בונוס ידוע מראש (למשל קבוע בתלוש)
+   "target": {"שם": {"per_hour": 65, "basis": "נטו", "hours": "total"|"weighted", "src": "..."}}}
+     ← שכר סופי = תעריף יעד × שעות (סה"כ או משוקללות); עמודת "בונוס נדרש ליעד" משלימה אליו  ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -92,7 +94,8 @@ def compact_issues(issues):
     return " · ".join(out)
 
 
-def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio=0.9, split_rates=None, venue_ok=(), notes=None, bonus=None):
+def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio=0.9, split_rates=None, venue_ok=(), notes=None, bonus=None, target=None):
+    target = target or {}
     notes = notes or {}
     bonus = bonus or {}
     rates = rates or {}
@@ -181,6 +184,12 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
             ws.cell(r, C["תעריף שעתי (₪)"], rate)
             ws.cell(r, C["בסיס תעריף"], basis)
             ws.cell(r, C["יחס נטו/ברוטו"], ratio if ratio else default_ratio)
+            if e["name"] in target:
+                tg = target[e["name"]]
+                hrs = H('סה"כ שעות') if tg.get("hours", "total") == "total" else H("שעות משוקללות")
+                ws.cell(r, C["שכר סופי (₪)"], f"={tg['per_hour']}*{hrs}")
+                ws.cell(r, C["שכר סופי (₪)"]).comment = Comment(tg.get("src", ""), "Claude")
+                ws.cell(r, C["נטו / ברוטו"], tg.get("basis", "נטו"))
             if e["name"] in bonus:
                 ws.cell(r, C["בונוס (₪)"], bonus[e["name"]][0])
                 ws.cell(r, C["בונוס (₪)"]).comment = Comment(bonus[e["name"]][1], "Claude")
@@ -352,4 +361,4 @@ if __name__ == "__main__":
     depts = split
     build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False),
           inp.get("default_ratio", 0.9), inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])),
-          inp.get("notes", {}), inp.get("bonus", {}))
+          inp.get("notes", {}), inp.get("bonus", {}), inp.get("target", {}))
