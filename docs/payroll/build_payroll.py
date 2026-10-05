@@ -327,6 +327,64 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
     from openpyxl.workbook.properties import CalcProperties
     wb.calculation = CalcProperties(fullCalcOnLoad=True)
     wb.save(out)
+    cache_values(out)
+
+
+def cache_values(out):
+    """openpyxl שומר נוסחאות בלי ערך מחושב, ותצוגה מקדימה (וואטסאפ, iPhone, Drive) מציגה תאים ריקים.
+    מחשב עם pycel וכותב את הערך לתוך ה-XML ליד הנוסחה — הנוסחאות נשארות."""
+    try:
+        from pycel import ExcelCompiler
+    except ImportError:
+        print("pycel לא מותקן — הקובץ יחושב רק בפתיחה ב-Excel (pip install pycel)")
+        return
+    import zipfile, shutil, os, html
+    xc = ExcelCompiler(filename=out)
+    wb = openpyxl.load_workbook(out)
+    names = {}
+    with zipfile.ZipFile(out) as z:
+        rels = z.read("xl/_rels/workbook.xml.rels").decode()
+        book = z.read("xl/workbook.xml").decode()
+    for name, rid in re.findall(r'<sheet[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"', book):
+        tgt = re.search(rf'Id="{rid}"[^>]*Target="([^"]+)"', rels) or re.search(rf'Target="([^"]+)"[^>]*Id="{rid}"', rels)
+        names["xl/" + tgt.group(1).lstrip("/").removeprefix("xl/")] = html.unescape(name)
+    vals = {}
+    for path, sheet in names.items():
+        for row in wb[sheet].iter_rows():
+            for c in row:
+                if isinstance(c.value, str) and c.value.startswith("="):
+                    try:
+                        v = xc.evaluate(f"'{sheet}'!{c.coordinate}")
+                    except Exception:
+                        continue
+                    vals[(path, c.coordinate)] = v
+
+    def fill(path, xml):
+        def sub(m):
+            attrs, f = m.group(1), m.group(2)
+            ref = re.search(r'\br="([A-Z]+\d+)"', attrs).group(1)
+            if (path, ref) not in vals:
+                return m.group(0)
+            v = vals[(path, ref)]
+            attrs = re.sub(r'\st="[^"]*"', "", attrs)
+            if v is None or v == "":
+                return f'<c{attrs} t="str">{f}<v></v></c>'
+            if isinstance(v, bool):
+                return f'<c{attrs} t="b">{f}<v>{int(v)}</v></c>'
+            if isinstance(v, (int, float)):
+                return f'<c{attrs}>{f}<v>{repr(float(v)) if isinstance(v, float) else v}</v></c>'
+            return f'<c{attrs} t="str">{f}<v>{html.escape(str(v))}</v></c>'
+        return re.sub(r'<c(\s[^>]*)>(<f>.*?</f>)(?:<v>.*?</v>|<v\s*/>)?</c>', sub, xml, flags=re.S)
+
+    tmp = out + ".tmp"
+    with zipfile.ZipFile(out) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename in names:
+                data = fill(item.filename, data.decode()).encode()
+            zout.writestr(item, data)
+    shutil.move(tmp, out)
+    print(f"ערכים מחושבים נשמרו ל-{len(vals)} תאי נוסחה")
 
 
 if __name__ == "__main__":
