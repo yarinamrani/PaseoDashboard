@@ -13,7 +13,8 @@
    "split_rates": {"שם": {"basis": "נטו", "bands": [[1, 4, 60], [5, 7, 65]]}},  ← תעריף לפי יום בשבוע (WEEKDAY: א'=1 … ש'=7)
    "venue_confirmed": [שמות],                                   ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)
    "notes": {"שם": "הערה לעמודת לבדיקה"},
-   "bonus": {"שם": [סכום, "מקור"]}}
+   "bonus": {"שם": [סכום, "מקור"]},
+   "role_rates": [["טבח", 55, "ברוטו"], ["שוטף", 40, "ברוטו"], ...]}  ← תעריף בסיס לפי תפקיד בשיפט, למי שאין לו תעריף אישי
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -95,7 +96,8 @@ def compact_issues(issues):
     return " · ".join(out)
 
 
-def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=None, venue_ok=(), notes=None, bonus=None):
+def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=None, venue_ok=(), notes=None, bonus=None, role_rates=None):
+    role_rates = role_rates or []
     notes = notes or {}
     bonus = bonus or {}
     rates = rates or {}
@@ -176,7 +178,16 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
             H = lambda k: f"{L(C[k])}{r}"
             # שעות לפי אחוזים — בתוך הנוסחה, בלי עמודת עזר
             paid = f"({H('רגילות')}+1.25*{H('125%')}+1.5*{H('150%')}+1.5*{H('שבת/חג')}+2*{H('מיוחד 200%')})"
-            rate, basis, hmode, src = (list(rates.get(e["name"]) or []) + [None] * 4)[:4]
+            own_rate, role_note = rates.get(e["name"]), None
+            if own_rate is None and e["name"] not in split_rates:
+                # תעריף בסיס לפי תפקיד בשיפט; כמה תפקידים עם תעריפים שונים → הגבוה, עם הערה
+                hits = sorted({(rt, b, pat) for role in e["roles"] for pat, rt, b in role_rates if pat in role}, reverse=True)
+                if hits:
+                    rt, b, pat = hits[0]
+                    own_rate = [rt, b, None, f"תעריף בסיס לפי תפקיד ({pat}): {rt} {b} לשעה"]
+                    if len({h[0] for h in hits}) > 1:
+                        role_note = "כמה תפקידים בתעריפים שונים (" + ", ".join(f"{h[2]} {h[0]}" for h in hits) + ") — נלקח הגבוה"
+            rate, basis, hmode, src = (list(own_rate or []) + [None] * 4)[:4]
             ws.cell(r, C["תעריף שעתי (₪)"], rate)
             ws.cell(r, C["נטו / ברוטו"], basis)
             if e["name"] in bonus:
@@ -212,6 +223,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 issues = "עבד/ה בטאלה — לבחור חברה לתלוש" + (" · " + issues if issues else "")
             if e["name"] in notes:
                 issues = notes[e["name"]] + (" · " + issues if issues else "")
+            if role_note:
+                issues = role_note + (" · " + issues if issues else "")
             if rate_note:
                 issues = rate_note + (" · " + issues if issues else "")
             if assumed:
@@ -496,4 +509,4 @@ if __name__ == "__main__":
     depts = split
     build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False),
           inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])),
-          inp.get("notes", {}), inp.get("bonus", {}))
+          inp.get("notes", {}), inp.get("bonus", {}), inp.get("role_rates", []))
