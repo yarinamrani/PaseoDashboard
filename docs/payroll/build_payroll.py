@@ -7,7 +7,9 @@
 קלט אופציונלי (לא נשמר בריפו — נתוני שכר) בקובץ JSON דרך PAYROLL_INPUTS:
   {"exclude": [שמות], "drop_agency": true, "tala_hint": [שמות],
    "rates": {"שם": [תעריף, "נטו"|"ברוטו"|null, יחס_נטו_לברוטו|null, "מקור"]}, "default_ratio": 0.9,
-   "venue": {"שם": "טאלה"}}   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
+   "venue": {"שם": "טאלה"},
+   "split_rates": {"שם": {"basis": "נטו", "bands": [[1, 4, 60], [5, 7, 65]]}},  ← תעריף לפי יום בשבוע (WEEKDAY: א'=1 … ש'=7)
+   "venue_confirmed": [שמות]}  ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -84,8 +86,10 @@ def compact_issues(issues):
     return " · ".join(out)
 
 
-def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio=0.9):
+def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio=0.9, split_rates=None, venue_ok=()):
     rates = rates or {}
+    split_rates = split_rates or {}
+    daily_rows = sum(len(e["daily"]) for d in depts.values() for e in d)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "סיכום שכר"
@@ -172,13 +176,26 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
             gross_base = f"({O}*{N}+MIN(315,16*{F_})+2*{H_}+{V})"
             ws.cell(r, C["ברוטו צפוי (₪)"], f'=IF({O}="","",IF({P}="נטו",({O}*{N}+{V})/{Q},{gross_base}))')
             ws.cell(r, C["נטו צפוי (₪)"], f'=IF({O}="","",IF({P}="נטו",{O}*{N}+{V},{gross_base}*{Q})-{W})')
+            if e["name"] in split_rates:
+                sr = split_rates[e["name"]]
+                rng = lambda c: f"'פירוט יומי'!${c}$2:${c}${daily_rows + 1}"
+                parts = [f"{rt}*SUMPRODUCT(({rng('B')}={H('שם עובד')})*(WEEKDAY({rng('D')})>={lo})*(WEEKDAY({rng('D')})<={hi})*{rng('R')})"
+                         for lo, hi, rt in sr["bands"]]
+                net = "+".join(parts)
+                ws.cell(r, C["תעריף שעתי (₪)"], sr["bands"][0][2])
+                ws.cell(r, C["תעריף שעתי (₪)"]).comment = Comment(
+                    "תעריף לפי יום: " + ", ".join(f"{'אבגדהוש'[lo-1]}'–{'אבגדהוש'[hi-1]}' {rt}" for lo, hi, rt in sr["bands"]) +
+                    f" ({sr['basis']}), לפי שעות סה\"כ ביום בגיליון הפירוט, בלי תוספות שעות נוספות.", "Claude")
+                ws.cell(r, C["בסיס תעריף"], sr["basis"])
+                ws.cell(r, C["נטו צפוי (₪)"], f"={net}+{V}-{W}")
+                ws.cell(r, C["ברוטו צפוי (₪)"], f"=({net}+{V})/{Q}")
             rate_note = None
             if rate is not None and src:
                 ws.cell(r, C["תעריף שעתי (₪)"]).comment = Comment(src, "Claude")
             if rate is not None and not basis:
                 rate_note = "לא צוין אם התעריף נטו או ברוטו — חושב כברוטו"
             assumed = bool(src and src.startswith("הנחה"))
-            issues = compact_issues(e["issues"])
+            issues = compact_issues([x for x in e["issues"] if not (e["name"] in venue_ok and OTHER_VENUE.search(x))])
             if t["סיכום"] == 0:
                 issues = ("0 שעות בחודש — לבדוק אם בכלל בתלוש" + (" · " + issues if issues else ""))
             if e["name"] in tala_hint:
@@ -307,4 +324,4 @@ if __name__ == "__main__":
             split[k] = emps
     depts = split
     build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False),
-          inp.get("default_ratio", 0.9))
+          inp.get("default_ratio", 0.9), inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])))
