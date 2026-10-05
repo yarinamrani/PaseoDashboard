@@ -4,6 +4,8 @@
 - גיליון "סיכום שכר": שורה לעובד, מחולק למחלקות (וכוח אדם בנפרד), עם עמודות קלט:
   בונוס / מפרעה / שכר סופי / נטו-ברוטו.
 - גיליון "פירוט יומי": כל המשמרות מכל הגיליונות, לבדיקה.
+קלט אופציונלי (לא נשמר בריפו — נתוני שכר) בקובץ JSON דרך PAYROLL_INPUTS:
+  {"exclude": [שמות], "drop_agency": true, "tala_hint": [שמות], "rates": {"שם": [תעריף, "נטו"|"ברוטו"|null]}}
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -80,7 +82,8 @@ def compact_issues(issues):
     return " · ".join(out)
 
 
-def build(out, depts, tala_hint=()):
+def build(out, depts, tala_hint=(), rates=None, drop_agency=False):
+    rates = rates or {}
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "סיכום שכר"
@@ -97,9 +100,10 @@ def build(out, depts, tala_hint=()):
     bold = Font(name=F, size=10, bold=True)
 
     cols = ["#", "שם עובד", "מזהה שעון", "תפקידים", "חברה בתלוש", "ימי עבודה", "משמרות",
-            "רגילות", "125%", "150%", "שבת/חג", "200%", 'סה"כ שעות',
+            "רגילות", "125%", "150%", "שבת/חג", "200%", 'סה"כ שעות', "שעות משוקללות",
+            "תעריף שעתי (₪)", "סכום לפי תעריף (₪)",
             "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו", "לבדיקה"]
-    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 8, 10, 11, 11, 12, 11, 60]
+    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 8, 10, 11, 10, 13, 11, 11, 12, 11, 60]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[L(i)].width = w
     C = {c: i + 1 for i, c in enumerate(cols)}
@@ -109,7 +113,9 @@ def build(out, depts, tala_hint=()):
     ws["A1"] = f"שכר — שעות עבודה {month}"
     ws["A1"].font = Font(name=F, size=14, bold=True)
     ws["A2"] = ("מקור: שיפטאורגנייזר, דוח מפורט (05/10/2026). שעות = כחול (מהדוח, לא לשנות). "
-                "תאים צהובים = למילוי: בונוס ידוע מראש, מפרעה לקיזוז, שכר סופי שרוצים שייצא בתלוש + נטו/ברוטו.")
+                "תאים צהובים = למילוי: תעריף שעתי, בונוס ידוע מראש, מפרעה לקיזוז, שכר סופי שרוצים שייצא בתלוש + נטו/ברוטו. "
+                "שעות משוקללות = רגילות + 125%×1.25 + 150%×1.5 + שבת/חג×1.5 + 200%×2 (הנחה: שבת/חג משולם 150%). "
+                "סכום לפי תעריף = תעריף × שעות משוקללות — הערכה בלבד, באותו בסיס נטו/ברוטו של התעריף.")
     ws["A2"].font = Font(name=F, size=9, italic=True)
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(cols))
 
@@ -150,6 +156,13 @@ def build(out, depts, tala_hint=()):
             for k, v in vals.items():
                 ws.cell(r, C[k], v)
             ws.cell(r, C['סה"כ שעות'], f"=SUM({L(C['רגילות'])}{r}:{L(C['200%'])}{r})")
+            H = lambda k: f"{L(C[k])}{r}"
+            ws.cell(r, C["שעות משוקללות"], f"={H('רגילות')}+1.25*{H('125%')}+1.5*{H('150%')}+1.5*{H('שבת/חג')}+2*{H('200%')}")
+            rate, nb = (rates.get(e["name"]) or [None, None])
+            ws.cell(r, C["תעריף שעתי (₪)"], rate)
+            ws.cell(r, C["סכום לפי תעריף (₪)"], f'=IF({H("תעריף שעתי (₪)")}="","",{H("תעריף שעתי (₪)")}*{H("שעות משוקללות")})')
+            if nb:
+                ws.cell(r, C["נטו / ברוטו"], nb)
             issues = compact_issues(e["issues"])
             if t["סיכום"] == 0:
                 issues = ("0 שעות בחודש — לבדוק אם בכלל בתלוש" + (" · " + issues if issues else ""))
@@ -162,12 +175,12 @@ def build(out, depts, tala_hint=()):
                 x.font = blue if cols[c - 1] in HCOLS + ["ימי עבודה", "משמרות"] else norm
                 if grey:
                     x.fill = agf
-            for k in ["בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו"] + ([] if co else ["חברה בתלוש"]):
+            for k in ["תעריף שעתי (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו"] + ([] if co else ["חברה בתלוש"]):
                 if not grey:
                     ws.cell(r, C[k]).fill = inp
-            for k in HCOLS + ['סה"כ שעות']:
+            for k in HCOLS + ['סה"כ שעות', "שעות משוקללות"]:
                 ws.cell(r, C[k]).number_format = '0.00;-0.00;"-"'
-            for k in ["בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
+            for k in ["תעריף שעתי (₪)", "סכום לפי תעריף (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
                 ws.cell(r, C[k]).number_format = '#,##0;-#,##0;"-"'
             ws.cell(r, C["לבדיקה"]).alignment = Alignment(wrap_text=True, vertical="top")
             dv_co.add(ws.cell(r, C["חברה בתלוש"]))
@@ -175,7 +188,7 @@ def build(out, depts, tala_hint=()):
             r += 1
         last = r - 1
         ws.cell(r, C["שם עובד"], f'סה"כ {title}').font = bold
-        for k in ["ימי עבודה", "משמרות"] + HCOLS + ['סה"כ שעות', "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
+        for k in ["ימי עבודה", "משמרות"] + HCOLS + ['סה"כ שעות', "שעות משוקללות", "סכום לפי תעריף (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
             x = ws.cell(r, C[k], f"=SUM({L(C[k])}{first}:{L(C[k])}{last})")
             x.font = bold
             x.number_format = '#,##0;-#,##0;"-"' if "₪" in k else ('0;-0;"-"' if k in ("ימי עבודה", "משמרות") else '#,##0.00;-#,##0.00;"-"')
@@ -190,7 +203,7 @@ def build(out, depts, tala_hint=()):
         agency = [e for e in emps if e["agency"]]
         if own:
             section(dept, own)
-        if agency:
+        if agency and not drop_agency:
             section(f"{dept} — כוח אדם", agency, grey=True,
                     note="לא בתלוש — שעות להשוואה מול חשבונית חברת כוח האדם")
     ws.freeze_panes = "C4"
@@ -244,5 +257,9 @@ if __name__ == "__main__":
     for a in sys.argv[2:]:
         k, p = a.split("=", 1)
         depts[k] = parse_file(p)
-    tala = set(filter(None, (__import__("os").environ.get("TALA_HINT") or "").split("|")))
-    build(out, depts, tala)
+    import os, json
+    inp = json.load(open(os.environ["PAYROLL_INPUTS"])) if os.environ.get("PAYROLL_INPUTS") else {}
+    excl = set(inp.get("exclude", []))
+    for k in depts:
+        depts[k] = [e for e in depts[k] if e["name"] not in excl and not (inp.get("drop_agency") and e["agency"])]
+    build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False))
