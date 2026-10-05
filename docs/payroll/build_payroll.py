@@ -6,7 +6,8 @@
 - גיליון "פירוט יומי": כל המשמרות מכל הגיליונות, לבדיקה.
 קלט אופציונלי (לא נשמר בריפו — נתוני שכר) בקובץ JSON דרך PAYROLL_INPUTS:
   {"exclude": [שמות], "drop_agency": true, "tala_hint": [שמות],
-   "rates": {"שם": [תעריף, "נטו"|"ברוטו"|null, יחס_נטו_לברוטו|null, "מקור"]}, "default_ratio": 0.9}
+   "rates": {"שם": [תעריף, "נטו"|"ברוטו"|null, יחס_נטו_לברוטו|null, "מקור"]}, "default_ratio": 0.9,
+   "venue": {"שם": "טאלה"}}   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -152,7 +153,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
         first = r
         for n, e in enumerate(sorted(emps, key=lambda e: (-e["totals"]["סיכום"], e["name"])), 1):
             t = e["totals"]
-            co = "כוח אדם" if e["agency"] else ("" if e["name"] in tala_hint else "פסאו")
+            co = "כוח אדם" if e["agency"] else ("" if e["name"] in tala_hint else e.get("venue", "פסאו"))
             vals = {"#": n, "שם עובד": e["name"], "מזהה שעון": e["clock"], "תפקידים": ", ".join(e["roles"]),
                     "חברה בתלוש": co, "ימי עבודה": e["days"], "משמרות": e["shifts"],
                     "רגילות": t["רגילות"] or None, "125%": t["125%"] or None, "150%": t["150%"] or None,
@@ -291,7 +292,19 @@ if __name__ == "__main__":
     import os, json
     inp = json.load(open(os.environ["PAYROLL_INPUTS"])) if os.environ.get("PAYROLL_INPUTS") else {}
     excl = set(inp.get("exclude", []))
+    venue = inp.get("venue", {})
+    split = {}
     for k in depts:
-        depts[k] = [e for e in depts[k] if e["name"] not in excl and not (inp.get("drop_agency") and e["agency"])]
+        emps = [e for e in depts[k] if e["name"] not in excl and not (inp.get("drop_agency") and e["agency"])]
+        for e in emps:
+            e["venue"] = venue.get(e["name"], "פסאו")
+        if venue:
+            for v in ("פסאו", "טאלה"):
+                part = [e for e in emps if e["venue"] == v]
+                if part:
+                    split[f"{k} {v}"] = part
+        else:
+            split[k] = emps
+    depts = split
     build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False),
           inp.get("default_ratio", 0.9))
