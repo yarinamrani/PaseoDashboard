@@ -9,7 +9,8 @@
    "rates": {"שם": [תעריף, "נטו"|"ברוטו"|null, יחס_נטו_לברוטו|null, "מקור"]}, "default_ratio": 0.9,
    "venue": {"שם": "טאלה"},
    "split_rates": {"שם": {"basis": "נטו", "bands": [[1, 4, 60], [5, 7, 65]]}},  ← תעריף לפי יום בשבוע (WEEKDAY: א'=1 … ש'=7)
-   "venue_confirmed": [שמות]}  ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
+   "venue_confirmed": [שמות],
+   "notes": {"שם": "הערה חופשית לעמודת לבדיקה"}}  ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)   ← מפצל כל מחלקה ל"<מחלקה> פסאו" / "<מחלקה> טאלה" (ברירת מחדל פסאו)
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -39,13 +40,17 @@ def parse_file(path):
         clock = (re.search(r"מזהה שעון:\s*(\S+)", info) or [None, ""])[1]
         # משבצות תפקיד: (תפקיד, כניסה, יציאה, הערות) חוזרות 1-3 פעמים
         slots = [i for i, h in enumerate(hdr) if h == "תפקיד"]
-        bidx = {b: hdr.index(b) for b in BUCKETS}
+        # דוחות מאפליקציות אחרות (למשל אומינו) בלי 125%/150% — עמודה חסרה = 0
+        bidx = {b: (hdr.index(b) if b in hdr else None) for b in BUCKETS}
+        cidx = hdr.index("עלות") if "עלות" in hdr else None
+        val = lambda r, i: (r[i] if i is not None else None)
         tidx = hdr.index("סיכום")
-        totals, roles, daily, issues = None, [], [], []
+        totals, roles, daily, issues, cost = None, [], [], [], None
         for r in rows[hi + 1:]:
             if r[0] and str(r[0]).startswith("סיכום כללי"):
-                totals = {b: float(r[bidx[b]] or 0) for b in BUCKETS}
+                totals = {b: float(val(r, bidx[b]) or 0) for b in BUCKETS}
                 totals["סיכום"] = float(r[tidx] or 0)
+                cost = float(val(r, cidx) or 0) or None
             elif r[0] and str(r[0]).startswith("סיכום "):
                 if float(r[tidx] or 0) > 0:
                     roles.append(str(r[0])[6:].strip())
@@ -63,12 +68,12 @@ def parse_file(path):
                         issues.append(f"{d} משמרת {(tout - tin).total_seconds() / 3600:.1f} ש'")
                     if note and OTHER_VENUE.search(str(note)):
                         issues.append(f"{d} {note}")
-                hours = {b: r[bidx[b]] for b in BUCKETS}
+                hours = {b: val(r, bidx[b]) for b in BUCKETS}
                 if segs or any(hours.values()):
                     daily.append((r[0], r[1], segs, hours, r[tidx]))
         emps.append(dict(name=name, month=month, days=days, shifts=shifts, clock=clock,
                          roles=roles, totals=totals or {b: 0 for b in BUCKETS + ["סיכום"]},
-                         daily=daily, issues=issues, agency="כוח אדם" in name))
+                         daily=daily, issues=issues, agency="כוח אדם" in name, cost=cost, source=path))
     return emps
 
 
@@ -86,7 +91,8 @@ def compact_issues(issues):
     return " · ".join(out)
 
 
-def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio=0.9, split_rates=None, venue_ok=()):
+def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio=0.9, split_rates=None, venue_ok=(), notes=None):
+    notes = notes or {}
     rates = rates or {}
     split_rates = split_rates or {}
     daily_rows = sum(len(e["daily"]) for d in depts.values() for e in d)
@@ -200,6 +206,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, default_ratio
                 issues = ("0 שעות בחודש — לבדוק אם בכלל בתלוש" + (" · " + issues if issues else ""))
             if e["name"] in tala_hint:
                 issues = "עבד/ה בטאלה — לבחור חברה לתלוש" + (" · " + issues if issues else "")
+            if e["name"] in notes:
+                issues = notes[e["name"]] + (" · " + issues if issues else "")
             if rate_note:
                 issues = rate_note + (" · " + issues if issues else "")
             if assumed:
@@ -305,7 +313,14 @@ if __name__ == "__main__":
     depts = {}
     for a in sys.argv[2:]:
         k, p = a.split("=", 1)
-        depts[k] = parse_file(p)
+        depts.setdefault(k, []).extend(parse_file(p))
+    # אותו עובד בכמה קבצים (למשל דוח נפרד מאפליקציה אחרת) — נשאר זה עם יותר שעות
+    for k in depts:
+        best = {}
+        for e in depts[k]:
+            if e["name"] not in best or e["totals"]["סיכום"] > best[e["name"]]["totals"]["סיכום"]:
+                best[e["name"]] = e
+        depts[k] = list(best.values())
     import os, json
     inp = json.load(open(os.environ["PAYROLL_INPUTS"])) if os.environ.get("PAYROLL_INPUTS") else {}
     excl = set(inp.get("exclude", []))
@@ -324,4 +339,5 @@ if __name__ == "__main__":
             split[k] = emps
     depts = split
     build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False),
-          inp.get("default_ratio", 0.9), inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])))
+          inp.get("default_ratio", 0.9), inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])),
+          inp.get("notes", {}))
