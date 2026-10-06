@@ -15,6 +15,8 @@
    "notes": {"שם": "הערה לעמודת לבדיקה"},
    "bonus": {"שם": [סכום, "מקור"]},
    "role_rates": [["טבח", 55, "ברוטו"], ["שוטף", 40, "ברוטו"], ...]}  ← תעריף בסיס לפי תפקיד בשיפט, למי שאין לו תעריף אישי
+פלור: "דוח סיכומים" (שורה לעובד×תפקיד) — מזוהה אוטומטית. תפקיד עם טיפים: שכר סופי = טיפים (אחרי גביית אוכל) + השלמה
+(מחושבת בשיפט לכל משמרת עד תעריף הבסיס); תפקיד עם "טאלה" בשם → מקטע טאלה.
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -82,6 +84,41 @@ def parse_file(path):
     return emps
 
 
+def parse_summaries(path):
+    """"דוח סיכומים" של שיפט (פלור): שורה לכל עובד×תפקיד, עם טיפים והשלמה. כל תפקיד = רשומה נפרדת."""
+    ws = openpyxl.load_workbook(path).active
+    rows = list(ws.iter_rows(values_only=True))
+    month = next((str(r[0]).split(":", 1)[1].strip() for r in rows[:5] if r[0] and str(r[0]).startswith("חודש")), "")
+    hi = next(i for i, r in enumerate(rows) if r[0] == "עובד")
+    hdr = list(rows[hi])
+    ix = {h: i for i, h in enumerate(hdr)}
+    num = lambda r, h: float(r[ix[h]] or 0) if h in ix and isinstance(r[ix[h]], (int, float)) else 0.0
+    emps = []
+    for r in rows[hi + 1:]:
+        name, role = r[0], str(r[1] or "")
+        if not name or name in ("כולם", "עובד") or not role.startswith("סיכום ") or role == "סיכום כללי":
+            continue
+        role = role[6:].strip()
+        totals = {b: num(r, b) for b in BUCKETS}
+        totals["סיכום"] = num(r, "סיכום")
+        if totals["סיכום"] <= 0:
+            continue
+        tipped = num(r, "טיפ מזומן") > 0 or num(r, "טיפ אחרי") > 0
+        emps.append(dict(name=str(name).strip(), key=f"{name}|{role}", role_row=role, month=month,
+                         days=int(num(r, "ימי עבודה")), shifts=int(num(r, "ימי עבודה")), clock=None,
+                         roles=[role], totals=totals, daily=[], issues=[], agency="כוח אדם" in str(name), cost=None,
+                         tips=num(r, "טיפ אחרי") if tipped else None, completion=num(r, "השלמה") if tipped else None,
+                         food=num(r, "גביית אוכל"), source=path))
+    return emps
+
+
+def parse_any(path):
+    wb = openpyxl.load_workbook(path, read_only=True)
+    first = wb.worksheets[0]
+    head = [c for r in first.iter_rows(max_row=5, values_only=True) for c in r if c]
+    return parse_summaries(path) if any(str(c).startswith("דוח סיכומים") for c in head) else parse_file(path)
+
+
 def compact_issues(issues):
     # מאחד "Tala"/"Paseo" חוזרים לשורה אחת לפי מקום
     out, venues = [], {}
@@ -119,9 +156,9 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
     bold = Font(name=F, size=10, bold=True)
 
     cols = ["#", "שם עובד", "מזהה שעון", "תפקידים", "חברה בתלוש", "ימי עבודה", "משמרות",
-            "רגילות", "125%", "150%", "שבת/חג", "מיוחד 200%", "סיכום",
+            "רגילות", "125%", "150%", "שבת/חג", "מיוחד 200%", "סיכום", "טיפים (₪)", "השלמה (₪)",
             "תעריף שעתי (₪)", "נטו / ברוטו", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "לבדיקה"]
-    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 9, 10, 10, 9, 10, 10, 13, 60]
+    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 9, 10, 10, 10, 10, 9, 10, 10, 13, 60]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[L(i)].width = w
     C = {c: i + 1 for i, c in enumerate(cols)}
@@ -165,10 +202,13 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
         header(r)
         r += 1
         first = r
-        for n, e in enumerate(sorted(emps, key=lambda e: (-e["totals"]["סיכום"], e["name"])), 1):
+        floor = any(e.get("role_row") for e in emps)
+        order = (lambda e: (e["name"], -e["totals"]["סיכום"])) if floor else (lambda e: (-e["totals"]["סיכום"], e["name"]))
+        for n, e in enumerate(sorted(emps, key=order), 1):
             t = e["totals"]
             co = "כוח אדם" if e["agency"] else ("" if e["name"] in tala_hint else e.get("venue", "פסאו"))
             vals = {"#": n, "שם עובד": e["name"], "מזהה שעון": e["clock"], "תפקידים": ", ".join(e["roles"]),
+                    "טיפים (₪)": e.get("tips"), "השלמה (₪)": e.get("completion"),
                     "חברה בתלוש": co, "ימי עבודה": e["days"], "משמרות": e["shifts"],
                     "רגילות": t["רגילות"] or None, "125%": t["125%"] or None, "150%": t["150%"] or None,
                     "שבת/חג": t["שבת/חג"] or None, "מיוחד 200%": t["מיוחד 200%"] or None}
@@ -184,7 +224,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 hits = sorted({(rt, b, pat) for role in e["roles"] for pat, rt, b in role_rates if pat in role}, reverse=True)
                 if hits:
                     rt, b, pat = hits[0]
-                    own_rate = [rt, b, None, f"תעריף בסיס לפי תפקיד ({pat}): {rt} {b} לשעה"]
+                    own_rate = [rt, b, None, ("הנחה: מתלמד/ה — לפי תעריף התפקיד" if "מתלמד" in " ".join(e["roles"]) else "תעריף בסיס לפי תפקיד")
+                                + f" ({pat}): {rt} {b} לשעה"]
                     if len({h[0] for h in hits}) > 1:
                         role_note = "כמה תפקידים בתעריפים שונים (" + ", ".join(f"{h[2]} {h[0]}" for h in hits) + ") — נלקח הגבוה"
             rate, basis, hmode, src = (list(own_rate or []) + [None] * 4)[:4]
@@ -197,6 +238,13 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
             # hmode "total" = תעריף כולל (למשל מתלוש קודם ÷ שעות) → על סיכום השעות בלי אחוזים
             hrs = f'{O}*{H("סיכום")}' if hmode == "total" else f'IF({P}="נטו",{O}*{H("סיכום")},{O}*{paid})'
             ws.cell(r, C["שכר סופי (₪)"], f'=IF({O}="","",{hrs}+{V})')
+            if e.get("tips") is not None:
+                # מלצר/בר: הטיפים הם השכר; השלמה = מה שהמסעדה משלימה עד תעריף הבסיס (שיפט מחשב לכל משמרת)
+                ws.cell(r, C["שכר סופי (₪)"], f'={H("טיפים (₪)")}+{H("השלמה (₪)")}+{V}')
+                ws.cell(r, C["שכר סופי (₪)"]).comment = Comment(
+                    "טיפים (אחרי גביית אוכל) + השלמה מהמסעדה עד תעריף הבסיס לשעה — כפי שחושב בשיפט לכל משמרת.", "Claude")
+                basis = basis or "ברוטו"
+                ws.cell(r, C["נטו / ברוטו"], basis)
             if e["name"] in split_rates:
                 sr = split_rates[e["name"]]
                 rng = lambda c: f"'פירוט יומי'!${c}$2:${c}${daily_rows + 1}"
@@ -212,6 +260,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
             rate_note = None
             if rate is not None and src:
                 ws.cell(r, C["תעריף שעתי (₪)"]).comment = Comment(src, "Claude")
+            if rate is None and e.get("tips") is None and e["name"] not in split_rates:
+                rate_note = "אין תעריף לתפקיד — להשלים"
             if rate is not None and not basis:
                 rate_note = "לא צוין אם התעריף נטו או ברוטו — חושב כברוטו"
                 ws.cell(r, C["נטו / ברוטו"], "ברוטו")
@@ -245,7 +295,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 ws.cell(r, C["תעריף שעתי (₪)"]).fill = PatternFill("solid", fgColor="F8CBAD")
             for k in HCOLS + ["סיכום"]:
                 ws.cell(r, C[k]).number_format = '0.00;-0.00;"-"'
-            for k in ["תעריף שעתי (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
+            for k in ["טיפים (₪)", "השלמה (₪)", "תעריף שעתי (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
                 ws.cell(r, C[k]).number_format = '#,##0;-#,##0;"-"'
             ws.cell(r, C["לבדיקה"]).alignment = Alignment(wrap_text=True, vertical="top")
             dv_co.add(ws.cell(r, C["חברה בתלוש"]))
@@ -253,7 +303,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
             r += 1
         last = r - 1
         ws.cell(r, C["שם עובד"], f'סה"כ {title}').font = bold
-        for k in ["ימי עבודה", "משמרות"] + HCOLS + ["סיכום", "בונוס (₪)", "מפרעה (₪)"]:
+        for k in ["ימי עבודה", "משמרות"] + HCOLS + ["סיכום", "טיפים (₪)", "השלמה (₪)", "בונוס (₪)", "מפרעה (₪)"]:
             x = ws.cell(r, C[k], f"=SUM({L(C[k])}{first}:{L(C[k])}{last})")
             x.font = bold
             x.number_format = '#,##0;-#,##0;"-"' if "₪" in k else ('0;-0;"-"' if k in ("ימי עבודה", "משמרות") else '#,##0.00;-#,##0.00;"-"')
@@ -328,7 +378,9 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
 def accountant_file(out):
     """קובץ נקי לרואת החשבון, מתוך הערכים המחושבים של קובץ השכר: מה שהעובד צריך לקבל, בלי בונוס/יחס/ברוטו משוער."""
     src = openpyxl.load_workbook(out, data_only=True)["סיכום שכר"]
-    if not any(isinstance(c.value, (int, float)) for row in src.iter_rows(min_row=6) for c in row[17:18]):
+    hdr0 = next(({c.value: c.column for c in row} for row in src.iter_rows(min_row=4, max_row=8) if row[0].value == "#"), {})
+    fin_col = hdr0.get("שכר סופי (₪)")
+    if not fin_col or not any(isinstance(src.cell(r, fin_col).value, (int, float)) for r in range(6, src.max_row + 1)):
         print("אין ערכים מחושבים (pycel חסר) — קובץ רואת החשבון לא נוצר")
         return
     F = "Arial"
@@ -346,11 +398,15 @@ def accountant_file(out):
             fin = num(g("שכר סופי (₪)"))
             cur[1].append({"שם עובד": b, "חברה בתלוש": g("חברה בתלוש"), "ימי עבודה": g("ימי עבודה"),
                            **{k: num(g(k)) for k in HCOLS_ACC}, "סיכום": num(g("סיכום")),
+                           "תפקיד": g("תפקידים") if g("תפקידים") and "," not in str(g("תפקידים")) else None,
+                           "טיפים (₪)": num(g("טיפים (₪)")), "השלמה (₪)": num(g("השלמה (₪)")),
                            "בונוס (₪)": num(g("בונוס (₪)")), "מפרעה (₪)": num(g("מפרעה (₪)")),
                            "שכר סופי (₪)": round(fin) if fin is not None else None,
                            "נטו / ברוטו": g("נטו / ברוטו") if fin is not None else None})
     rows = [e for _, es in sections for e in es]
-    cols = ["#", "שם עובד", "חברה בתלוש", "ימי עבודה"] + HCOLS_ACC + ["סיכום", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו"]
+    floor = any(e.get("טיפים (₪)") is not None for e in [x for _, es in sections for x in es])
+    cols = ["#", "שם עובד"] + (["תפקיד"] if floor else []) + ["חברה בתלוש", "ימי עבודה"] + HCOLS_ACC + ["סיכום", "טיפים (₪)", "השלמה (₪)",
+            "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו"]
     keep = ("#", "שם עובד", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו")
     cols = [c for c in cols if c in keep or any(e.get(c) not in (None, "", 0) for e in rows)]
     wb = openpyxl.Workbook()
@@ -369,7 +425,7 @@ def accountant_file(out):
     ws["A2"].font = Font(name=F, size=9, italic=True)
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(cols))
     for i, c in enumerate(cols, 1):
-        ws.column_dimensions[L(i)].width = {"#": 4, "שם עובד": 24, "חברה בתלוש": 11}.get(c, 11)
+        ws.column_dimensions[L(i)].width = {"#": 4, "שם עובד": 24, "תפקיד": 16, "חברה בתלוש": 11}.get(c, 11)
     r = 4
     for title, es in sections:
         if not es:
@@ -398,7 +454,7 @@ def accountant_file(out):
             r += 1
         ws.cell(r, cols.index("שם עובד") + 1, f'סה"כ {title}').font = Font(name=F, size=10, bold=True)
         for c, name in enumerate(cols, 1):
-            if name in ["ימי עבודה", "סיכום", "בונוס (₪)", "מפרעה (₪)"] + HCOLS_ACC:
+            if name in ["ימי עבודה", "סיכום", "טיפים (₪)", "השלמה (₪)", "בונוס (₪)", "מפרעה (₪)"] + HCOLS_ACC:
                 x = ws.cell(r, c, round(sum(e.get(name) or 0 for e in es), 2))
                 x.font = Font(name=F, size=10, bold=True)
                 x.number_format = '#,##0;-#,##0;""' if "₪" in name or name == "ימי עבודה" else '#,##0.00;-#,##0.00;""'
@@ -482,13 +538,14 @@ if __name__ == "__main__":
     depts = {}
     for a in sys.argv[2:]:
         k, p = a.split("=", 1)
-        depts.setdefault(k, []).extend(parse_file(p))
+        depts.setdefault(k, []).extend(parse_any(p))
     # אותו עובד בכמה קבצים (למשל דוח נפרד מאפליקציה אחרת) — נשאר זה עם יותר שעות
     for k in depts:
         best = {}
         for e in depts[k]:
-            if e["name"] not in best or e["totals"]["סיכום"] > best[e["name"]]["totals"]["סיכום"]:
-                best[e["name"]] = e
+            key = e.get("key", e["name"])
+            if key not in best or e["totals"]["סיכום"] > best[key]["totals"]["סיכום"]:
+                best[key] = e
         depts[k] = list(best.values())
     import os, json
     inp = json.load(open(os.environ["PAYROLL_INPUTS"])) if os.environ.get("PAYROLL_INPUTS") else {}
@@ -498,8 +555,9 @@ if __name__ == "__main__":
     for k in depts:
         emps = [e for e in depts[k] if e["name"] not in excl and not (inp.get("drop_agency") and e["agency"])]
         for e in emps:
-            e["venue"] = venue.get(e["name"], "פסאו")
-        if venue:
+            # פלור: הסניף לפי התפקיד ("מלצר טאלה"); מטבח: לפי מיפוי השמות
+            e["venue"] = "טאלה" if "טאלה" in e.get("role_row", "") else venue.get(e["name"], "פסאו")
+        if venue or any(e.get("role_row") for e in emps):
             for v in ("פסאו", "טאלה"):
                 part = [e for e in emps if e["venue"] == v]
                 if part:
