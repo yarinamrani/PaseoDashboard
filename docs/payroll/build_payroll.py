@@ -15,6 +15,7 @@
    "notes": {"שם": "הערה לעמודת לבדיקה"},
    "bonus": {"שם": [סכום, "מקור"]},
    "fixed": {"שם": [סכום, "ברוטו"|"נטו", "מקור"]},
+   "real_rate": {"שם": 60},  ← פלור: שכר אמיתי לשעה; שכר סופי = תעריף × סך השעות + טיפים + השלמה + בונוס, ו"בונוס 2" = הפער מעל התלוש
    "floor_final": [שמות],  ← פלור: שכר סופי רק להם; לשאר ריק (רואת החשבון מחשבת)
    "blatam_as": {"שם": "אחמש"},  ← שעות בלת"מ של העובד נספרות בתפקיד הזה  ← משכורת גלובלית — שכר סופי קבוע, בלי קשר לשעות
    "tala_101": [שמות], "no_101": [שמות],  ← לפי טופסי 101 ב-BUK: מי במקטע טאלה; מי בלי טופס בכלל (מסומן)
@@ -162,7 +163,8 @@ def compact_issues(issues):
 
 
 def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=None, venue_ok=(), notes=None, bonus=None, role_rates=None, fixed=None,
-          floor_final=None):
+          floor_final=None, real_rate=None):
+    real_rate = real_rate or {}
     role_rates, fixed = role_rates or [], fixed or {}
     notes = notes or {}
     bonus = bonus or {}
@@ -186,8 +188,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
 
     cols = ["#", "שם עובד", "מזהה שעון", "תפקידים", "חברה בתלוש", "ימי עבודה", "משמרות",
             "רגילות", "125%", "150%", "שבת/חג", "מיוחד 200%", "סיכום", "טיפים (₪)", "השלמה (₪)",
-            "תעריף שעתי (₪)", "נטו / ברוטו", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "לבדיקה"]
-    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 9, 10, 10, 10, 10, 9, 10, 10, 13, 60]
+            "תעריף שעתי (₪)", "נטו / ברוטו", "בונוס (₪)", "בונוס 2 – השלמה לשכר (₪)", "מפרעה (₪)", "שכר סופי (₪)", "לבדיקה"]
+    widths = [4, 24, 9, 22, 11, 8, 8, 9, 8, 8, 9, 9, 10, 10, 10, 10, 9, 10, 12, 10, 13, 60]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[L(i)].width = w
     C = {c: i + 1 for i, c in enumerate(cols)}
@@ -317,6 +319,14 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 else:
                     ws.cell(r, C["שכר סופי (₪)"], "=" + "+".join(tip_terms + terms + [V]))
                 ws.cell(r, C["שכר סופי (₪)"]).comment = Comment("\n".join(priced) or "-", "Claude")
+                if e["name"] in real_rate and not missing:
+                    # השכר האמיתי: תעריף אמיתי × סך השעות + טיפים + השלמה + בונוס.
+                    # בונוס 2 = הפער מעל החישוב לפי תעריף התלוש (שאר התפקידים × תעריף התלוש לפי אחוזים)
+                    rr = real_rate[e["name"]]
+                    ws.cell(r, C["שכר סופי (₪)"]).value = "=" + "+".join([f'{rr}*{H("סיכום")}'] + tip_terms + [V])
+                    ws.cell(r, C["בונוס 2 – השלמה לשכר (₪)"]).value = f'={rr}*{H("סיכום")}-(' + ("+".join(terms) or "0") + ")"
+                    ws.cell(r, C["שכר סופי (₪)"]).comment = Comment(
+                        f"שכר אמיתי: {rr} ₪ × סך השעות + טיפים + השלמה + בונוס.\nבונוס 2 = ההפרש מעל התלוש:\n" + "\n".join(priced), "Claude")
                 # פלור: שכר סופי רק לעובדים שנבחרו; לשאר — רואת החשבון מחשבת מהשעות/טיפים/השלמה
                 if floor_final is not None and e["name"] not in floor_final:
                     ws.cell(r, C["שכר סופי (₪)"]).value = None
@@ -372,7 +382,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 ws.cell(r, C["תעריף שעתי (₪)"]).fill = PatternFill("solid", fgColor="F8CBAD")
             for k in HCOLS + ["סיכום"]:
                 ws.cell(r, C[k]).number_format = '0.00;-0.00;"-"'
-            for k in ["טיפים (₪)", "השלמה (₪)", "תעריף שעתי (₪)", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
+            for k in ["טיפים (₪)", "השלמה (₪)", "תעריף שעתי (₪)", "בונוס (₪)", "בונוס 2 – השלמה לשכר (₪)", "מפרעה (₪)", "שכר סופי (₪)"]:
                 ws.cell(r, C[k]).number_format = '#,##0;-#,##0;"-"'
             ws.cell(r, C["לבדיקה"]).alignment = Alignment(wrap_text=True, vertical="top")
             dv_co.add(ws.cell(r, C["חברה בתלוש"]))
@@ -380,7 +390,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
             r += 1
         last = r - 1
         ws.cell(r, C["שם עובד"], f'סה"כ {title}').font = bold
-        for k in ["ימי עבודה", "משמרות"] + HCOLS + ["סיכום", "טיפים (₪)", "השלמה (₪)", "בונוס (₪)", "מפרעה (₪)"]:
+        for k in ["ימי עבודה", "משמרות"] + HCOLS + ["סיכום", "טיפים (₪)", "השלמה (₪)", "בונוס (₪)", "בונוס 2 – השלמה לשכר (₪)", "מפרעה (₪)"]:
             x = ws.cell(r, C[k], f"=SUM({L(C[k])}{first}:{L(C[k])}{last})")
             x.font = bold
             x.number_format = '#,##0;-#,##0;"-"' if "₪" in k else ('0;-0;"-"' if k in ("ימי עבודה", "משמרות") else '#,##0.00;-#,##0.00;"-"')
@@ -477,13 +487,13 @@ def accountant_file(out):
                            **{k: num(g(k)) for k in HCOLS_ACC}, "סיכום": num(g("סיכום")),
                            "תפקיד": g("תפקידים"),
                            "טיפים (₪)": num(g("טיפים (₪)")), "השלמה (₪)": num(g("השלמה (₪)")),
-                           "בונוס (₪)": num(g("בונוס (₪)")), "מפרעה (₪)": num(g("מפרעה (₪)")),
+                           "בונוס (₪)": num(g("בונוס (₪)")), "בונוס 2 – השלמה לשכר (₪)": num(g("בונוס 2 – השלמה לשכר (₪)")), "מפרעה (₪)": num(g("מפרעה (₪)")),
                            "שכר סופי (₪)": round(fin) if fin is not None else None,
                            "נטו / ברוטו": g("נטו / ברוטו") if fin is not None else None})
     rows = [e for _, es in sections for e in es]
     floor = any(e.get("טיפים (₪)") is not None for e in [x for _, es in sections for x in es])
     cols = ["#", "שם עובד"] + (["תפקיד"] if floor else []) + ["חברה בתלוש", "ימי עבודה"] + HCOLS_ACC + ["סיכום", "טיפים (₪)", "השלמה (₪)",
-            "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו"]
+            "בונוס (₪)", "בונוס 2 – השלמה לשכר (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו"]
     keep = ("#", "שם עובד", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו")
     cols = [c for c in cols if c in keep or any(e.get(c) not in (None, "", 0) for e in rows)]
     wb = openpyxl.Workbook()
@@ -531,7 +541,7 @@ def accountant_file(out):
             r += 1
         ws.cell(r, cols.index("שם עובד") + 1, f'סה"כ {title}').font = Font(name=F, size=10, bold=True)
         for c, name in enumerate(cols, 1):
-            if name in ["ימי עבודה", "סיכום", "טיפים (₪)", "השלמה (₪)", "בונוס (₪)", "מפרעה (₪)"] + HCOLS_ACC:
+            if name in ["ימי עבודה", "סיכום", "טיפים (₪)", "השלמה (₪)", "בונוס (₪)", "בונוס 2 – השלמה לשכר (₪)", "מפרעה (₪)"] + HCOLS_ACC:
                 x = ws.cell(r, c, round(sum(e.get(name) or 0 for e in es), 2))
                 x.font = Font(name=F, size=10, bold=True)
                 x.number_format = '#,##0;-#,##0;""' if "₪" in name or name == "ימי עבודה" else '#,##0.00;-#,##0.00;""'
@@ -660,4 +670,4 @@ if __name__ == "__main__":
     build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False),
           inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])),
           inp.get("notes", {}), inp.get("bonus", {}), inp.get("role_rates", []), inp.get("fixed", {}),
-          set(inp["floor_final"]) if "floor_final" in inp else None)
+          set(inp["floor_final"]) if "floor_final" in inp else None, inp.get("real_rate", {}))
