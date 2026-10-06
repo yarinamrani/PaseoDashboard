@@ -132,6 +132,17 @@ def parse_any(path):
     return parse_summaries(path) if any(str(c).startswith("דוח סיכומים") for c in head) else parse_file(path)
 
 
+def role_label(roles):
+    """תפקיד אחד וקצר לעמודת התפקידים: הראשי (ראשון ברשימה), בלי סניף/מתלמד/בלת"מ."""
+    def norm(x):
+        x = re.sub(r"\b(טאלה|פסאו|פאסאו)\b", "", x)
+        x = re.sub(r"^מתלמד(ת)?\s+", "", x.strip()).strip()
+        return {"בר": "ברמן", "אחמש": 'אחמ"ש'}.get(x, x)
+    labels = [norm(r) for r in roles]
+    main = [x for x in labels if x and x != 'בלת"מ']
+    return main[0] if main else (labels[0] if labels else "")
+
+
 def compact_issues(issues):
     # מאחד "Tala"/"Paseo" חוזרים לשורה אחת לפי מקום
     out, venues = [], {}
@@ -220,7 +231,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
         for n, e in enumerate(sorted(emps, key=order), 1):
             t = e["totals"]
             co = "כוח אדם" if e["agency"] else ("" if e["name"] in tala_hint else e.get("venue", "פסאו"))
-            vals = {"#": n, "שם עובד": e["name"], "מזהה שעון": e["clock"], "תפקידים": e.get("roles_disp") or ", ".join(e["roles"]),
+            vals = {"#": n, "שם עובד": e["name"], "מזהה שעון": e["clock"], "תפקידים": role_label(e["roles"]),
                     "טיפים (₪)": e.get("tips"), "השלמה (₪)": e.get("completion"),
                     "חברה בתלוש": co, "ימי עבודה": e["days"], "משמרות": e["shifts"],
                     "רגילות": t["רגילות"] or None, "125%": t["125%"] or None, "150%": t["150%"] or None,
@@ -310,7 +321,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 rate_note = "לא צוין אם התעריף נטו או ברוטו — חושב כברוטו"
                 ws.cell(r, C["נטו / ברוטו"], "ברוטו")
             assumed = bool(src and src.startswith("הנחה"))
-            issues = compact_issues([x for x in e["issues"] if not (e["name"] in venue_ok and OTHER_VENUE.search(x))])
+            issues = " · ".join(x for x in e["issues"] if not re.match(r"\d\d/\d\d", x))
             if t["סיכום"] == 0:
                 issues = ("0 שעות בחודש — לבדוק אם בכלל בתלוש" + (" · " + issues if issues else ""))
             if e["name"] in tala_hint:
