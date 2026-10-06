@@ -322,11 +322,14 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 if e["name"] in real_rate and not missing:
                     # השכר האמיתי: תעריף אמיתי × סך השעות + טיפים + השלמה + בונוס.
                     # בונוס 2 = הפער מעל החישוב לפי תעריף התלוש (שאר התפקידים × תעריף התלוש לפי אחוזים)
-                    rr = real_rate[e["name"]]
-                    ws.cell(r, C["שכר סופי (₪)"]).value = "=" + "+".join([f'{rr}*{H("סיכום")}'] + tip_terms + [V])
-                    ws.cell(r, C["בונוס 2 – השלמה לשכר (₪)"]).value = f'={rr}*{H("סיכום")}-(' + ("+".join(terms) or "0") + ")"
+                    # real_rate: מספר = תעריף × סך השעות (שטוח); [תעריף, "base"] = שכר יסוד, עם אחוזי שעות נוספות
+                    rr, mode = (real_rate[e["name"]], "flat") if not isinstance(real_rate[e["name"]], list) else real_rate[e["name"]][:2]
+                    pay = f'{rr}*{H("סיכום")}' if mode == "flat" else f"{rr}*{paid}"
+                    ws.cell(r, C["שכר סופי (₪)"]).value = "=" + "+".join([pay] + tip_terms + [V])
+                    ws.cell(r, C["בונוס 2 – השלמה לשכר (₪)"]).value = f"={pay}-(" + ("+".join(terms) or "0") + ")"
+                    how = "× סך השעות" if mode == "flat" else "שכר יסוד × שעות לפי אחוזים"
                     ws.cell(r, C["שכר סופי (₪)"]).comment = Comment(
-                        f"שכר אמיתי: {rr} ₪ × סך השעות + טיפים + השלמה + בונוס.\nבונוס 2 = ההפרש מעל התלוש:\n" + "\n".join(priced), "Claude")
+                        f"שכר אמיתי: {rr} ₪ {how} + טיפים + השלמה + בונוס.\nבונוס 2 = ההפרש מעל התלוש:\n" + "\n".join(priced), "Claude")
                 # פלור: שכר סופי רק לעובדים שנבחרו; לשאר — רואת החשבון מחשבת מהשעות/טיפים/השלמה
                 if floor_final is not None and e["name"] not in floor_final:
                     ws.cell(r, C["שכר סופי (₪)"]).value = None
