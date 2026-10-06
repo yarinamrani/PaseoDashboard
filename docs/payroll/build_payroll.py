@@ -15,8 +15,9 @@
    "notes": {"שם": "הערה לעמודת לבדיקה"},
    "bonus": {"שם": [סכום, "מקור"]},
    "role_rates": [["טבח", 55, "ברוטו"], ["שוטף", 40, "ברוטו"], ...]}  ← תעריף בסיס לפי תפקיד בשיפט, למי שאין לו תעריף אישי
-פלור: "דוח סיכומים" (שורה לעובד×תפקיד) — מזוהה אוטומטית. תפקיד עם טיפים: שכר סופי = טיפים (אחרי גביית אוכל) + השלמה
-(מחושבת בשיפט לכל משמרת עד תעריף הבסיס); תפקיד עם "טאלה" בשם → מקטע טאלה.
+פלור: "דוח סיכומים" (שורה לעובד×תפקיד) — מזוהה אוטומטית ומאוחד לשורה אחת לעובד. שכר סופי = טיפים (אחרי גביית אוכל)
++ השלמה (מחושבת בשיפט לכל משמרת עד תעריף הבסיס) + תעריף התפקיד × שעות לפי אחוזים לתפקידים בלי טיפים.
+עבד רק בתפקידי "טאלה" → מקטע טאלה; עבד בשני המקומות → פסאו (תלוש בגג על הים).
 הקריאה לפי שורת הכותרות (מספר העמודות משתנה בין עובדים: 1-3 משבצות תפקיד ביום).
 """
 import sys, re, datetime as dt
@@ -85,30 +86,41 @@ def parse_file(path):
 
 
 def parse_summaries(path):
-    """"דוח סיכומים" של שיפט (פלור): שורה לכל עובד×תפקיד, עם טיפים והשלמה. כל תפקיד = רשומה נפרדת."""
+    """"דוח סיכומים" של שיפט (פלור): שורה לעובד×תפקיד, עם טיפים והשלמה. מאוחד לרשומה אחת לעובד, עם פירוט לפי תפקיד (parts)."""
     ws = openpyxl.load_workbook(path).active
     rows = list(ws.iter_rows(values_only=True))
     month = next((str(r[0]).split(":", 1)[1].strip() for r in rows[:5] if r[0] and str(r[0]).startswith("חודש")), "")
     hi = next(i for i, r in enumerate(rows) if r[0] == "עובד")
-    hdr = list(rows[hi])
-    ix = {h: i for i, h in enumerate(hdr)}
+    ix = {h: i for i, h in enumerate(rows[hi])}
     num = lambda r, h: float(r[ix[h]] or 0) if h in ix and isinstance(r[ix[h]], (int, float)) else 0.0
-    emps = []
+    by, days = {}, {}
     for r in rows[hi + 1:]:
-        name, role = r[0], str(r[1] or "")
-        if not name or name in ("כולם", "עובד") or not role.startswith("סיכום ") or role == "סיכום כללי":
+        name, role = (str(r[0]).strip() if r[0] else None), str(r[1] or "")
+        if not name or name in ("כולם", "עובד") or not role.startswith("סיכום "):
             continue
-        role = role[6:].strip()
+        if role == "סיכום כללי":
+            days[name] = int(num(r, "ימי עבודה"))
+            continue
         totals = {b: num(r, b) for b in BUCKETS}
         totals["סיכום"] = num(r, "סיכום")
         if totals["סיכום"] <= 0:
             continue
         tipped = num(r, "טיפ מזומן") > 0 or num(r, "טיפ אחרי") > 0
-        emps.append(dict(name=str(name).strip(), key=f"{name}|{role}", role_row=role, month=month,
-                         days=int(num(r, "ימי עבודה")), shifts=int(num(r, "ימי עבודה")), clock=None,
-                         roles=[role], totals=totals, daily=[], issues=[], agency="כוח אדם" in str(name), cost=None,
-                         tips=num(r, "טיפ אחרי") if tipped else None, completion=num(r, "השלמה") if tipped else None,
-                         food=num(r, "גביית אוכל"), source=path))
+        by.setdefault(name, []).append(dict(role=role[6:].strip(), totals=totals,
+                                            tips=num(r, "טיפ אחרי") if tipped else None,
+                                            completion=num(r, "השלמה") if tipped else None))
+    emps = []
+    for name, parts in by.items():
+        parts.sort(key=lambda p: -p["totals"]["סיכום"])
+        tot = {b: sum(p["totals"][b] for p in parts) for b in BUCKETS + ["סיכום"]}
+        tp = [p for p in parts if p["tips"] is not None]
+        roles = [p["role"] for p in parts]
+        emps.append(dict(name=name, key=name, role_row=", ".join(roles), all_tala=all("טאלה" in x for x in roles),
+                         roles=roles, roles_disp=", ".join(f"{p['role']} {p['totals']['סיכום']:.1f}" for p in parts) if len(parts) > 1 else roles[0],
+                         parts=parts, month=month, days=days.get(name, 0), shifts=days.get(name, 0), clock=None,
+                         totals=tot, daily=[], issues=[], agency="כוח אדם" in name, cost=None,
+                         tips=sum(p["tips"] for p in tp) if tp else None,
+                         completion=sum(p["completion"] for p in tp) if tp else None, source=path))
     return emps
 
 
@@ -207,7 +219,7 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
         for n, e in enumerate(sorted(emps, key=order), 1):
             t = e["totals"]
             co = "כוח אדם" if e["agency"] else ("" if e["name"] in tala_hint else e.get("venue", "פסאו"))
-            vals = {"#": n, "שם עובד": e["name"], "מזהה שעון": e["clock"], "תפקידים": ", ".join(e["roles"]),
+            vals = {"#": n, "שם עובד": e["name"], "מזהה שעון": e["clock"], "תפקידים": e.get("roles_disp") or ", ".join(e["roles"]),
                     "טיפים (₪)": e.get("tips"), "השלמה (₪)": e.get("completion"),
                     "חברה בתלוש": co, "ימי עבודה": e["days"], "משמרות": e["shifts"],
                     "רגילות": t["רגילות"] or None, "125%": t["125%"] or None, "150%": t["150%"] or None,
@@ -257,10 +269,41 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 ws.cell(r, C["נטו / ברוטו"], sr["basis"])
                 tot = "+".join(parts)
                 ws.cell(r, C["שכר סופי (₪)"], f"={tot}+{V}")
+            floor_note = None
+            if e.get("parts") is not None:
+                # פלור: שורה אחת לעובד. שכר סופי = טיפים + השלמה (תפקידי טיפ) + תעריף התפקיד × שעות לפי אחוזים (שאר התפקידים)
+                pats = sorted(role_rates, key=lambda x: -len(x[0]))
+                terms, priced, missing, rts, trainee = [], [], [], set(), False
+                for pt in e["parts"]:
+                    if pt["tips"] is not None:
+                        priced.append(f"{pt['role']} {pt['totals']['סיכום']:.1f} ש': טיפים {pt['tips']:,.0f} + השלמה {pt['completion']:,.0f}")
+                        continue
+                    pr = rates.get(e["name"]) or next(([rt, b] for pat, rt, b in pats if pat in pt["role"]), None)
+                    if pr is None:
+                        missing.append(f"{pt['role']} ({pt['totals']['סיכום']:.1f} ש')")
+                        continue
+                    tt = pt["totals"]
+                    terms.append(f"{pr[0]}*({tt['רגילות']:.4f}+1.25*{tt['125%']:.4f}+1.5*{tt['150%']:.4f}"
+                                 f"+1.5*{tt['שבת/חג']:.4f}+2*{tt['מיוחד 200%']:.4f})")
+                    rts.add(pr[0])
+                    trainee |= "מתלמד" in pt["role"]
+                    priced.append(f"{pt['role']} {tt['סיכום']:.1f} ש' × {pr[0]}" + (" (מתלמד/ה — לפי תעריף התפקיד)" if "מתלמד" in pt["role"] else ""))
+                # תעריף בעמודה רק כשהוא חד-משמעי (תפקיד אחד בלי טיפים); אחרת הפירוט בהערה על השכר הסופי
+                rate = next(iter(rts)) if len(rts) == 1 and e.get("tips") is None else None
+                basis, src, role_note = "ברוטו", ("הנחה: מתלמד/ה לפי תעריף התפקיד" if trainee else None), None
+                ws.cell(r, C["תעריף שעתי (₪)"]).value = rate
+                ws.cell(r, C["נטו / ברוטו"], basis)
+                tip_terms = [H("טיפים (₪)"), H("השלמה (₪)")] if e.get("tips") is not None else []
+                if missing:
+                    ws.cell(r, C["שכר סופי (₪)"]).value = None
+                    floor_note = "חסר תעריף ל: " + ", ".join(missing)
+                else:
+                    ws.cell(r, C["שכר סופי (₪)"], "=" + "+".join(tip_terms + terms + [V]))
+                ws.cell(r, C["שכר סופי (₪)"]).comment = Comment("\n".join(priced) or "-", "Claude")
             rate_note = None
             if rate is not None and src:
                 ws.cell(r, C["תעריף שעתי (₪)"]).comment = Comment(src, "Claude")
-            if rate is None and e.get("tips") is None and e["name"] not in split_rates:
+            if rate is None and e.get("tips") is None and e["name"] not in split_rates and e.get("parts") is None:
                 rate_note = "אין תעריף לתפקיד — להשלים"
             if rate is not None and not basis:
                 rate_note = "לא צוין אם התעריף נטו או ברוטו — חושב כברוטו"
@@ -275,6 +318,8 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 issues = notes[e["name"]] + (" · " + issues if issues else "")
             if role_note:
                 issues = role_note + (" · " + issues if issues else "")
+            if floor_note:
+                issues = floor_note + (" · " + issues if issues else "")
             if rate_note:
                 issues = rate_note + (" · " + issues if issues else "")
             if assumed:
@@ -398,7 +443,7 @@ def accountant_file(out):
             fin = num(g("שכר סופי (₪)"))
             cur[1].append({"שם עובד": b, "חברה בתלוש": g("חברה בתלוש"), "ימי עבודה": g("ימי עבודה"),
                            **{k: num(g(k)) for k in HCOLS_ACC}, "סיכום": num(g("סיכום")),
-                           "תפקיד": g("תפקידים") if g("תפקידים") and "," not in str(g("תפקידים")) else None,
+                           "תפקיד": g("תפקידים"),
                            "טיפים (₪)": num(g("טיפים (₪)")), "השלמה (₪)": num(g("השלמה (₪)")),
                            "בונוס (₪)": num(g("בונוס (₪)")), "מפרעה (₪)": num(g("מפרעה (₪)")),
                            "שכר סופי (₪)": round(fin) if fin is not None else None,
@@ -425,7 +470,7 @@ def accountant_file(out):
     ws["A2"].font = Font(name=F, size=9, italic=True)
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(cols))
     for i, c in enumerate(cols, 1):
-        ws.column_dimensions[L(i)].width = {"#": 4, "שם עובד": 24, "תפקיד": 16, "חברה בתלוש": 11}.get(c, 11)
+        ws.column_dimensions[L(i)].width = {"#": 4, "שם עובד": 24, "תפקיד": 30, "חברה בתלוש": 11}.get(c, 11)
     r = 4
     for title, es in sections:
         if not es:
@@ -556,7 +601,8 @@ if __name__ == "__main__":
         emps = [e for e in depts[k] if e["name"] not in excl and not (inp.get("drop_agency") and e["agency"])]
         for e in emps:
             # פלור: הסניף לפי התפקיד ("מלצר טאלה"); מטבח: לפי מיפוי השמות
-            e["venue"] = "טאלה" if "טאלה" in e.get("role_row", "") else venue.get(e["name"], "פסאו")
+            # פלור: רק מי שעבד בטאלה בלבד → טאלה; עבד בשני המקומות → פסאו (תלוש בגג על הים)
+            e["venue"] = "טאלה" if e.get("all_tala") else venue.get(e["name"], "פסאו")
         if venue or any(e.get("role_row") for e in emps):
             for v in ("פסאו", "טאלה"):
                 part = [e for e in emps if e["venue"] == v]
