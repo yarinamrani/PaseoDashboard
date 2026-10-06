@@ -15,6 +15,7 @@
    "notes": {"שם": "הערה לעמודת לבדיקה"},
    "bonus": {"שם": [סכום, "מקור"]},
    "fixed": {"שם": [סכום, "ברוטו"|"נטו", "מקור"]},
+   "floor_final": [שמות],  ← פלור: שכר סופי רק להם; לשאר ריק (רואת החשבון מחשבת)
    "blatam_as": {"שם": "אחמש"},  ← שעות בלת"מ של העובד נספרות בתפקיד הזה  ← משכורת גלובלית — שכר סופי קבוע, בלי קשר לשעות
    "tala_101": [שמות], "no_101": [שמות],  ← לפי טופסי 101 ב-BUK: מי במקטע טאלה; מי בלי טופס בכלל (מסומן)
    "role_rates": [["טבח", 55, "ברוטו"], ["שוטף", 40, "ברוטו"], ...]}  ← תעריף בסיס לפי תפקיד בשיפט, למי שאין לו תעריף אישי
@@ -160,7 +161,8 @@ def compact_issues(issues):
     return " · ".join(out)
 
 
-def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=None, venue_ok=(), notes=None, bonus=None, role_rates=None, fixed=None):
+def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=None, venue_ok=(), notes=None, bonus=None, role_rates=None, fixed=None,
+          floor_final=None):
     role_rates, fixed = role_rates or [], fixed or {}
     notes = notes or {}
     bonus = bonus or {}
@@ -315,6 +317,13 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 else:
                     ws.cell(r, C["שכר סופי (₪)"], "=" + "+".join(tip_terms + terms + [V]))
                 ws.cell(r, C["שכר סופי (₪)"]).comment = Comment("\n".join(priced) or "-", "Claude")
+                # פלור: שכר סופי רק לעובדים שנבחרו; לשאר — רואת החשבון מחשבת מהשעות/טיפים/השלמה
+                if floor_final is not None and e["name"] not in floor_final:
+                    ws.cell(r, C["שכר סופי (₪)"]).value = None
+                    ws.cell(r, C["שכר סופי (₪)"]).comment = None
+                    ws.cell(r, C["נטו / ברוטו"]).value = None
+                    rate, floor_note, src = None, None, None
+                    ws.cell(r, C["תעריף שעתי (₪)"]).value = None
             if e["name"] in fixed:
                 # משכורת גלובלית: סכום קבוע (+ בונוס), בלי קשר לשעות
                 amt, fb, fsrc = (list(fixed[e["name"]]) + [None, None])[:3]
@@ -650,4 +659,5 @@ if __name__ == "__main__":
     depts = split
     build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False),
           inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])),
-          inp.get("notes", {}), inp.get("bonus", {}), inp.get("role_rates", []), inp.get("fixed", {}))
+          inp.get("notes", {}), inp.get("bonus", {}), inp.get("role_rates", []), inp.get("fixed", {}),
+          set(inp["floor_final"]) if "floor_final" in inp else None)
