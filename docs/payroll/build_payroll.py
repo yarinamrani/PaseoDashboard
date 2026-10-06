@@ -14,7 +14,8 @@
    "venue_confirmed": [שמות],                                   ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)
    "notes": {"שם": "הערה לעמודת לבדיקה"},
    "bonus": {"שם": [סכום, "מקור"]},
-   "fixed": {"שם": [סכום, "ברוטו"|"נטו", "מקור"]},  ← משכורת גלובלית — שכר סופי קבוע, בלי קשר לשעות
+   "fixed": {"שם": [סכום, "ברוטו"|"נטו", "מקור"]},
+   "blatam_as": {"שם": "אחמש"},  ← שעות בלת"מ של העובד נספרות בתפקיד הזה  ← משכורת גלובלית — שכר סופי קבוע, בלי קשר לשעות
    "tala_101": [שמות], "no_101": [שמות],  ← לפי טופסי 101 ב-BUK: מי במקטע טאלה; מי בלי טופס בכלל (מסומן)
    "role_rates": [["טבח", 55, "ברוטו"], ["שוטף", 40, "ברוטו"], ...]}  ← תעריף בסיס לפי תפקיד בשיפט, למי שאין לו תעריף אישי
 פלור: "דוח סיכומים" (שורה לעובד×תפקיד) — מזוהה אוטומטית ומאוחד לשורה אחת לעובד. שכר סופי = טיפים (אחרי גביית אוכל)
@@ -134,14 +135,15 @@ def parse_any(path):
 
 
 def role_label(roles):
-    """תפקיד אחד וקצר לעמודת התפקידים: הראשי (ראשון ברשימה), בלי סניף/מתלמד/בלת"מ."""
+    """תפקיד אחד וקצר לעמודת התפקידים: הראשי (ראשון ברשימה), בלי סניף/בלת"מ; שעות מתלמד → "התלמדות"."""
     def norm(x):
-        x = re.sub(r"\b(טאלה|פסאו|פאסאו)\b", "", x)
-        x = re.sub(r"^מתלמד(ת)?\s+", "", x.strip()).strip()
+        x = re.sub(r"\b(טאלה|פסאו|פאסאו)\b", "", x).strip()
         return {"בר": "ברמן", "אחמש": 'אחמ"ש'}.get(x, x)
-    labels = [norm(r) for r in roles]
-    main = [x for x in labels if x and x != 'בלת"מ']
-    return main[0] if main else (labels[0] if labels else "")
+    trainee = any("מתלמד" in r for r in roles)
+    main = [norm(r) for r in roles if "מתלמד" not in r and norm(r) != 'בלת"מ']
+    if main:
+        return main[0] + (" + התלמדות" if trainee else "")
+    return "התלמדות" if trainee else (norm(roles[0]) if roles else "")
 
 
 def compact_issues(issues):
@@ -617,6 +619,15 @@ if __name__ == "__main__":
     import os, json
     inp = json.load(open(os.environ["PAYROLL_INPUTS"])) if os.environ.get("PAYROLL_INPUTS") else {}
     excl = set(inp.get("exclude", []))
+    # שעות בלת"מ של עובד מסוים נספרות כתפקיד אחר (למשל אחמ"ש / מארחת)
+    for k in depts:
+        for e in depts[k]:
+            to = inp.get("blatam_as", {}).get(e["name"])
+            if to:
+                e["roles"] = [to if x == 'בלת"מ' else x for x in e["roles"]]
+                for pt in e.get("parts", []):
+                    if pt["role"] == 'בלת"מ':
+                        pt["role"] = to
     venue = inp.get("venue", {})
     split = {}
     for k in depts:
