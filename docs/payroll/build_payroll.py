@@ -324,12 +324,15 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                     # בונוס 2 = הפער מעל החישוב לפי תעריף התלוש (שאר התפקידים × תעריף התלוש לפי אחוזים)
                     # real_rate: מספר = תעריף × סך השעות (שטוח); [תעריף, "base"] = שכר יסוד, עם אחוזי שעות נוספות;
                     # [תעריף, "no_tips"] = תעריף × שעות התפקידים בלי טיפים (שעות בר/מלצרות משולמות בטיפים + השלמה)
-                    rr, mode = (real_rate[e["name"]], "flat") if not isinstance(real_rate[e["name"]], list) else real_rate[e["name"]][:2]
+                    rv = real_rate[e["name"]] if isinstance(real_rate[e["name"]], list) else [real_rate[e["name"]], "flat"]
+                    rr, mode, rbasis = (rv + ["ברוטו"])[:3]
                     nt_hours = sum(pt["totals"]["סיכום"] for pt in e["parts"] if pt["tips"] is None)
                     pay = {"flat": f'{rr}*{H("סיכום")}', "base": f"{rr}*{paid}",
                            "no_tips": f"{rr}*{nt_hours:.4f}"}[mode]
                     ws.cell(r, C["שכר סופי (₪)"]).value = "=" + "+".join([pay] + tip_terms + [V])
-                    ws.cell(r, C["בונוס 2 – השלמה לשכר (₪)"]).value = f"={pay}-(" + ("+".join(terms) or "0") + ")"
+                    # בנטו — את בונוס 2 רואת החשבון מחשבת בגילום; בברוטו — ההפרש מעל התלוש
+                    ws.cell(r, C["בונוס 2 – השלמה לשכר (₪)"]).value = (f"={pay}-(" + ("+".join(terms) or "0") + ")") if rbasis != "נטו" else None
+                    ws.cell(r, C["נטו / ברוטו"]).value = rbasis
                     how = {"flat": "× סך השעות", "base": "שכר יסוד × שעות לפי אחוזים",
                            "no_tips": f"× {nt_hours:.2f} שעות בתפקידים בלי טיפים"}[mode]
                     ws.cell(r, C["שכר סופי (₪)"]).comment = Comment(
