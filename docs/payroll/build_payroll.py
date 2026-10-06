@@ -14,6 +14,7 @@
    "venue_confirmed": [שמות],                                   ← לא לסמן "עבד בטאלה/אומינו" (אושר שהם של הסניף)
    "notes": {"שם": "הערה לעמודת לבדיקה"},
    "bonus": {"שם": [סכום, "מקור"]},
+   "fixed": {"שם": [סכום, "ברוטו"|"נטו", "מקור"]},  ← משכורת גלובלית — שכר סופי קבוע, בלי קשר לשעות
    "tala_101": [שמות], "no_101": [שמות],  ← לפי טופסי 101 ב-BUK: מי במקטע טאלה; מי בלי טופס בכלל (מסומן)
    "role_rates": [["טבח", 55, "ברוטו"], ["שוטף", 40, "ברוטו"], ...]}  ← תעריף בסיס לפי תפקיד בשיפט, למי שאין לו תעריף אישי
 פלור: "דוח סיכומים" (שורה לעובד×תפקיד) — מזוהה אוטומטית ומאוחד לשורה אחת לעובד. שכר סופי = טיפים (אחרי גביית אוכל)
@@ -157,8 +158,8 @@ def compact_issues(issues):
     return " · ".join(out)
 
 
-def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=None, venue_ok=(), notes=None, bonus=None, role_rates=None):
-    role_rates = role_rates or []
+def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=None, venue_ok=(), notes=None, bonus=None, role_rates=None, fixed=None):
+    role_rates, fixed = role_rates or [], fixed or {}
     notes = notes or {}
     bonus = bonus or {}
     rates = rates or {}
@@ -312,10 +313,18 @@ def build(out, depts, tala_hint=(), rates=None, drop_agency=False, split_rates=N
                 else:
                     ws.cell(r, C["שכר סופי (₪)"], "=" + "+".join(tip_terms + terms + [V]))
                 ws.cell(r, C["שכר סופי (₪)"]).comment = Comment("\n".join(priced) or "-", "Claude")
+            if e["name"] in fixed:
+                # משכורת גלובלית: סכום קבוע (+ בונוס), בלי קשר לשעות
+                amt, fb, fsrc = (list(fixed[e["name"]]) + [None, None])[:3]
+                rate, basis, src, role_note, floor_note = None, fb or "ברוטו", None, None, None
+                ws.cell(r, C["תעריף שעתי (₪)"]).value = None
+                ws.cell(r, C["נטו / ברוטו"]).value = basis
+                ws.cell(r, C["שכר סופי (₪)"]).value = f"={amt}+{V}"
+                ws.cell(r, C["שכר סופי (₪)"]).comment = Comment(fsrc or f"משכורת גלובלית {amt:,}", "Claude")
             rate_note = None
             if rate is not None and src:
                 ws.cell(r, C["תעריף שעתי (₪)"]).comment = Comment(src, "Claude")
-            if rate is None and e.get("tips") is None and e["name"] not in split_rates and e.get("parts") is None:
+            if rate is None and e.get("tips") is None and e["name"] not in split_rates and e.get("parts") is None and e["name"] not in fixed:
                 rate_note = "אין תעריף לתפקיד — להשלים"
             if rate is not None and not basis:
                 rate_note = "לא צוין אם התעריף נטו או ברוטו — חושב כברוטו"
@@ -631,4 +640,4 @@ if __name__ == "__main__":
     depts = split
     build(out, depts, set(inp.get("tala_hint", [])), inp.get("rates", {}), inp.get("drop_agency", False),
           inp.get("split_rates", {}), set(inp.get("venue_confirmed", [])),
-          inp.get("notes", {}), inp.get("bonus", {}), inp.get("role_rates", []))
+          inp.get("notes", {}), inp.get("bonus", {}), inp.get("role_rates", []), inp.get("fixed", {}))
