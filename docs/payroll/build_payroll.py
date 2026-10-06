@@ -467,7 +467,6 @@ def accountant_file(out):
             cur[1].append({"שם עובד": b, "חברה בתלוש": g("חברה בתלוש"), "ימי עבודה": g("ימי עבודה"),
                            **{k: num(g(k)) for k in HCOLS_ACC}, "סיכום": num(g("סיכום")),
                            "תפקיד": g("תפקידים"),
-                           "טופס 101": "אין ב-BUK" if "אין טופס 101" in str(g("לבדיקה") or "") else None,
                            "טיפים (₪)": num(g("טיפים (₪)")), "השלמה (₪)": num(g("השלמה (₪)")),
                            "בונוס (₪)": num(g("בונוס (₪)")), "מפרעה (₪)": num(g("מפרעה (₪)")),
                            "שכר סופי (₪)": round(fin) if fin is not None else None,
@@ -475,7 +474,7 @@ def accountant_file(out):
     rows = [e for _, es in sections for e in es]
     floor = any(e.get("טיפים (₪)") is not None for e in [x for _, es in sections for x in es])
     cols = ["#", "שם עובד"] + (["תפקיד"] if floor else []) + ["חברה בתלוש", "ימי עבודה"] + HCOLS_ACC + ["סיכום", "טיפים (₪)", "השלמה (₪)",
-            "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו", "טופס 101"]
+            "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו"]
     keep = ("#", "שם עובד", "בונוס (₪)", "מפרעה (₪)", "שכר סופי (₪)", "נטו / ברוטו")
     cols = [c for c in cols if c in keep or any(e.get(c) not in (None, "", 0) for e in rows)]
     wb = openpyxl.Workbook()
