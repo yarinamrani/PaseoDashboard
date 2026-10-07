@@ -2,9 +2,12 @@
 // פרוס בסלוט של contest-daily (התחרות נגמרה, מכסת הפונקציות מלאה). cron 66: רביעי 20:00 (17:00 UTC).
 //
 // ירין 08/10: שוטפים כמעט לא משתנים — מועתקים אחד-לאחד מהשבוע הנוכחי.
-// טבחים משתנים משבוע לשבוע — לא מעתיקים שמות. נשאר רק השלד (אותן שעות) כתאים ריקים "חסר טבח", חוץ מהקבועים:
-//   • בני — ב'–ש' כמו השבוע הנוכחי, חופש בראשון.
-//   • מולו — כפולות באמצע השבוע: ב'–ה' 11:30 + 17:00.
+// טבחים משתנים משבוע לשבוע — לא מעתיקים שמות. השלד (משבצות ושעות) נלקח מהשבוע הנוכחי, הקבועים
+// (app_config.SHIFT_DRAFT_FIXED) תופסים כל אחד משבצת באותו יום ובאותה שעה (או נוספים אם אין),
+// וכל משבצת שנשארה הופכת לתא ריק "חסר טבח". ירין 08/10:
+//   • עידו — פתיחה כל בוקר א'–ו'.  • מולו — בוקר עם עידו, כפולות ב'–ה' (11:30 + 17:00).
+//   • בני — הטבח השלישי, ב'–ש' (חופש א').  • יעקב / מאיר / אביעד — לפי הגשות (SHIFT_DRAFT_WAITING).
+// SHIFT_DRAFT_FIXED = {"<employee id>": {"name": "...", "days": {"<0-6>": ["HH:MM", ...]}}}
 //   1. אם כבר יש רוטה לשבוע הבא עם תאי טבח/שוטף — לא נוגע בכלום, רק מדווח.
 //   2. יוצר רוטה, מעתיק מכסות (שער >= 60), כותב תאים. לא מפרסם לעולם.
 //   3. שולח סיכום לוואטסאפ (app_config.SHIFT_DRAFT_WA_TARGET, ברירת מחדל SHIFT_CLOCK_WA_TARGET).
@@ -12,8 +15,9 @@
 // עובדים ב-app_config.SHIFT_DRAFT_SKIP (מערך JSON של מזהי עובד) הופכים לחור עם הערה "חסר טבח"/"חסר שוטף".
 //   ?week=YYYY-MM-DD  (ברירת מחדל: ראשון הבא)   ?src=YYYY-MM-DD (ברירת מחדל: שבוע לפני)
 //   בלי confirm — ריצה יבשה שמחזירה את ההודעה. ?confirm=1 כותב. &notify=1 שולח וואטסאפ.
-//   ?rebuild=cooks — לטיוטה קיימת: מוחק את תאי הטבחים ובונה אותם מחדש לפי הכללים, רק אם הם עדיין
-//     זהים להעתק של שבוע המקור (כלומר אף אחד לא ערך אותם). אחרת עוצר ומדווח.
+//   ?rebuild=cooks — לטיוטה קיימת: מוחק את תאי הטבחים ובונה אותם מחדש לפי הכללים, רק אם הם עדיין זהים
+//     להעתק של שבוע המקור או למה שהפונקציה כתבה בפעם האחרונה (טביעה ב-SHIFT_DRAFT_COOKS_<rota>).
+//     אם מישהו ערך אותם בינתיים — עוצר ומדווח.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -21,8 +25,7 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 const BASE = "https://app.shiftorganizer.com";
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 const APP = 4283, COOK = 34771, DISH = 34937, B = 16656, E = 21796;
-const BENNY = 543969, MOLU = 853229;
-const MOLU_DAYS = [1, 2, 3, 4], MOLU_TIMES: [number, string][] = [[B, "11:30"], [E, "17:00"]];
+type Fixed = Record<string, { name: string; days: Record<string, string[]> }>;
 const ROLE_NAME: Record<number, string> = { [COOK]: "טבח", [DISH]: "שוטף" };
 const DAYS = ["א'", "ב'", "ג'", "ד'", "ה'", "ו'", "ש'"];
 
@@ -93,22 +96,33 @@ function summarize(cells: any[]) {
   return { cooks: line(COOK), dish: line(DISH), seven, cookHoles: holeLines(COOK), dishHoles: holeLines(DISH), nCook: nHoles(COOK), nDish: nHoles(DISH) };
 }
 
-// טבחים: שלד של השבוע המקור. בני נשאר (חוץ מראשון), מולו לפי הכלל, כל השאר הופך ל"חסר טבח".
-function cookRows(src: any[]) {
+// טבחים: שלד של השבוע המקור. כל שיבוץ קבוע תופס משבצת באותו יום ושעה (קודם את המשבצת של אותו עובד),
+// ואם אין כזו — נוסף תא. משבצות שנשארו → "חסר טבח" (חור שהיה במקור שומר על ההערה שלו).
+function cookRows(src: any[], fixed: Fixed) {
+  const free = src.map((c) => ({ ...c }));
   const out: any[] = [];
-  for (const c of src) {
-    if (c.employee === BENNY && c.day !== 0) { out.push({ ...c }); continue; }
-    if (c.employee === MOLU && MOLU_DAYS.includes(c.day)) continue;
-    out.push({ ...c, employee: null, first_name: "", last_name: "", notes: c.employee ? "חסר טבח" : (c.notes || "חסר טבח") });
+  const want: { emp: number; name: string; day: number; t: string }[] = [];
+  for (const [id, f] of Object.entries(fixed)) for (const [d, ts] of Object.entries(f.days)) for (const t of ts)
+    want.push({ emp: Number(id), name: f.name, day: Number(d), t });
+  // קודם משבצות של העובד עצמו, אחר כך של אחרים
+  const own = (w: { emp: number; day: number; t: string }) => free.some((c) => c.employee === w.emp && c.day === w.day && hhmm(c.planned_start) === w.t);
+  want.sort((a, b) => Number(own(b)) - Number(own(a)));
+  for (const w of want) {
+    const same = (c: any) => c.day === w.day && hhmm(c.planned_start) === w.t;
+    let i = free.findIndex((c) => same(c) && c.employee === w.emp);
+    if (i < 0) i = free.findIndex(same);
+    const base = i >= 0 ? free.splice(i, 1)[0] : { day: w.day, role: COOK, shift: w.t < "14:00" ? B : E, planned_start: w.t, planned_end: null };
+    out.push({ ...base, employee: w.emp, first_name: w.name, last_name: "", notes: "" });
   }
-  for (const d of MOLU_DAYS) for (const [shift, t] of MOLU_TIMES)
-    out.push({ day: d, role: COOK, shift, employee: MOLU, first_name: "מולו", last_name: "", planned_start: t, planned_end: null, notes: "" });
+  for (const c of free) out.push({ ...c, employee: null, first_name: "", last_name: "", notes: c.employee ? "חסר טבח" : (c.notes || "חסר טבח") });
   // order רץ לכל יום, בוקר לפני ערב
   out.sort((a, b) => (a.day - b.day) || hhmm(a.planned_start).localeCompare(hhmm(b.planned_start)));
   const n: Record<number, number> = {};
   for (const r of out) r.order = (n[r.day] = (n[r.day] ?? 0) + 1);
   return out;
 }
+const cookKey = (c: any) => `${c.day}|${c.employee ?? "-"}|${hhmm(c.planned_start)}`;
+const fingerprint = (cells: any[]) => cells.map(cookKey).sort().join(",");
 
 const json = (o: any, s = 200) => new Response(JSON.stringify(o, null, 1), { status: s, headers: { "Content-Type": "application/json" } });
 
@@ -124,12 +138,19 @@ Deno.serve(async (req) => {
     let skip: number[] = [];
     try { const v = JSON.parse((await cfg("SHIFT_DRAFT_SKIP")) || "[]"); if (Array.isArray(v)) skip = v.map(Number); } catch (_e) { skip = []; }
     const target = (await cfg("SHIFT_DRAFT_WA_TARGET")) || (await cfg("SHIFT_CLOCK_WA_TARGET"));
+    let fixed: Fixed = {};
+    try { fixed = JSON.parse((await cfg("SHIFT_DRAFT_FIXED")) || "{}"); } catch (_e) { fixed = {}; }
+    const waiting = await cfg("SHIFT_DRAFT_WAITING");
     const tell = async (msg: string) => (notify && go && target) ? await send(target, msg) : false;
 
     const jar: Record<string, string> = {};
     if (!(await login(jar))) return json({ error: "login failed" }, 502);
     if (!(await switchApp(jar, APP))) return json({ error: "switch failed" }, 502);
     const get = async (p: string) => rowsOf(await (await fetch(`${BASE}/api/${p}`, { headers: hdrs(jar) })).json());
+    const saveFp = async (rotaId: number) => {
+      const now = (await get("cells/")).filter((c: any) => !c.is_deleted && c.rota === rotaId && c.role === COOK);
+      await sb.from("app_config").upsert({ key: `SHIFT_DRAFT_COOKS_${rotaId}`, value: fingerprint(now) }, { onConflict: "key" });
+    };
     const findRota = async (d: string) => (await get("rotas/")).find((r: any) => String(r.date).slice(0, 10) === d && r.application === APP && !r.is_deleted);
 
     const srcRota = await findRota(SRC);
@@ -157,12 +178,13 @@ Deno.serve(async (req) => {
         },
       };
     };
-    const cooks = cookRows(srcAll.filter((c: any) => c.role === COOK)).map(toRow);
+    const cooks = cookRows(srcAll.filter((c: any) => c.role === COOK), fixed).map(toRow);
     const rows = [...srcAll.filter((c: any) => c.role === DISH).map(toRow), ...cooks];
     const s = summarize(rows.map((r) => r.view));
     const msgBody = (head: string) => `${head}\n\n` +
-      `*טבחים קבועים:* בני ב'–ש' (חופש א') · מולו כפולות ב'–ה' 11:30+17:00\n` +
-      `*טבחים לשבץ (${s.nCook} תאים "חסר טבח"):*\n${s.cookHoles.map((h) => "• " + h).join("\n") || "—"}\n\n` +
+      `*טבחים קבועים (ימים):* ${s.cooks || "—"}\n` +
+      `*טבחים לשבץ (${s.nCook} תאים "חסר טבח"):*\n${s.cookHoles.map((h) => "• " + h).join("\n") || "—"}\n` +
+      (waiting ? `ממתין להגשות: ${waiting}\n` : "") + `\n` +
       `*שוטפים (ימים):* ${s.dish || "—"} — העתק של ${ddmm(SRC)}–${ddmm(addDays(SRC, 6))}\n` +
       (s.nDish ? `*שוטפים חסרים:* ${s.dishHoles.join(" · ")}\n` : "") +
       (s.seven.length ? `\n⚠️ *7 ימים:* ${s.seven.join(", ")}\n` : "") +
@@ -171,12 +193,10 @@ Deno.serve(async (req) => {
     // בנייה מחדש של הטבחים בטיוטה קיימת — רק אם אף אחד לא נגע בה מאז ההעתקה
     if (u.searchParams.get("rebuild") === "cooks") {
       if (!rota) return json({ error: "אין טיוטה לשבוע הזה" }, 404);
-      const key = (c: any) => `${c.day}|${c.employee ?? "-"}|${hhmm(c.planned_start)}`;
       const cur = allCells.filter((c: any) => c.rota === rota.id && c.role === COOK);
-      const want = new Set(srcAll.filter((c: any) => c.role === COOK).map(key));
-      const curKeys = new Set(cur.map(key));
-      const changed = [...curKeys].filter((k) => !want.has(k)).concat([...want].filter((k) => !curKeys.has(k)));
-      if (changed.length) return json({ blocked: true, reason: "תאי הטבחים בטיוטה נערכו מאז ההעתקה — לא נוגע", changed }, 409);
+      const fp = fingerprint(cur), last = await cfg(`SHIFT_DRAFT_COOKS_${rota.id}`);
+      const untouched = fp === fingerprint(srcAll.filter((c: any) => c.role === COOK)) || (!!last && fp === last);
+      if (!untouched) return json({ blocked: true, reason: "תאי הטבחים בטיוטה נערכו מאז הכתיבה האוטומטית — לא נוגע", current: fp }, 409);
       if (!go) return json({ dry: true, rebuild: "cooks", delete: cur.length, create: cooks.length, message: msgBody(`🗓 *טיוטת סידור מטבח ${range}* (ריצה יבשה)`) });
       let del = 0, created = 0; const failed: any[] = [];
       for (const c of cur) {
@@ -189,6 +209,7 @@ Deno.serve(async (req) => {
         const t = await res.text();
         if (res.ok) created++; else failed.push({ day: r.payload.day, start: r.payload.planned_start, status: res.status, body: t.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").slice(0, 140) });
       }
+      await saveFp(rota.id);
       const after = await findRota(WEEK);
       const message = msgBody(`🗓 *טיוטת סידור מטבח ${range}* — הטבחים נבנו מחדש (${created} תאים${failed.length ? `, ${failed.length} כשלים` : ""})`);
       const sent = await tell(message);
@@ -231,6 +252,7 @@ Deno.serve(async (req) => {
       const t = await res.text();
       if (res.ok) created++; else failed.push({ day: r.payload.day, start: r.payload.planned_start, emp: r.payload.employee, status: res.status, body: t.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").slice(0, 140) });
     }
+    await saveFp(rota.id);
     const after = await findRota(WEEK);
     const head = `🗓 *טיוטת סידור מטבח ${range}* — נוצרה בשיפט (${created} תאים${failed.length ? `, ${failed.length} נכשלו` : ""})`;
     const message = msgBody(head);
