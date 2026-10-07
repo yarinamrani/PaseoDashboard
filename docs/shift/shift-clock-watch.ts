@@ -8,6 +8,8 @@
 //   ?mode=digest (פעם ביום בבוקר) — סיכום של אתמול: כל מה שעדיין לא תוקן + משמרת מעל 14 ש' + משובץ בלי שום החתמה
 //   ?dry=1 — מחזיר מה היה נשלח, בלי לשלוח ובלי לרשום.
 // משמרת שהמנהל כבר תיקן בה שעות ידנית (manual_start/manual_end) לא נחשבת תקלה. עובדי כוח אדם מסוננים.
+// "משובץ בלי החתמה" לא נבדק בתאים עם הערה Umino/אומינו — מי שמשובץ לאומינו מחתים באפליקציה של אומינו
+// (למשל Germay 778534 בסידור פסאו = גרמי 829782 שמחתים ב-5931), שלא נקראת כאן.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -58,7 +60,7 @@ const ddmm = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
 const endAt = (date: string, start: string, end: string) => { const s = at(date, start); let e = at(date, end); if (e < s) e += 864e5; return e; };
 
 type Cell = { id: number; app: number; date: string; name: string; ps: string | null; pe: string | null;
-  cs: string | null; ce: string | null; ms: string | null; me: string | null; absence: string | null };
+  cs: string | null; ce: string | null; ms: string | null; me: string | null; absence: string | null; notes: string };
 type Hit = { cell: Cell; kind: string; line: string };
 
 function check(c: Cell, now: number, mode: "live" | "digest"): Hit[] {
@@ -75,7 +77,7 @@ function check(c: Cell, now: number, mode: "live" | "digest"): Hit[] {
     const due = c.pe ? endAt(c.date, c.ps ?? c.cs, c.pe) + NO_EXIT_GRACE_MIN * 6e4 : at(c.date, c.cs) + NO_END_MAX_H * 36e5;
     if (now > due) out.push({ cell: c, kind: "no_exit", line: `⏰ ${who} – נכנס/ה ב-${hm(c.cs)} ואין יציאה – לבדוק ולתקן בשיפט` });
   }
-  if (mode === "digest" && c.ps && !c.cs && !c.ce && !c.absence)
+  if (mode === "digest" && c.ps && !c.cs && !c.ce && !c.absence && !/umino|אומינו/i.test(c.notes))
     out.push({ cell: c, kind: "no_show", line: `❔ ${who} – שובץ/ה מ-${hm(c.ps)} ואין שום החתמה – לא הגיע/ה או לא החתים/ה?` });
   return out;
 }
@@ -115,7 +117,7 @@ Deno.serve(async (req) => {
         const name = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
         if (!dates.includes(date) || c.is_deleted || !c.employee || /כוח אדם/.test(name)) continue;
         cells.push({ id: c.id, app, date, name, ps: c.planned_start || null, pe: c.planned_end || null,
-          cs: c.clock_start || null, ce: c.clock_end || null, ms: c.manual_start || null, me: c.manual_end || null, absence: c.absence || null });
+          cs: c.clock_start || null, ce: c.clock_end || null, ms: c.manual_start || null, me: c.manual_end || null, absence: c.absence || null, notes: String(c.notes || "") });
       }
     }
 
