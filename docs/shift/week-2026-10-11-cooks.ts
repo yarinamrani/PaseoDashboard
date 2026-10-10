@@ -11,15 +11,15 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 const BASE = "https://app.shiftorganizer.com";
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 const P_APP = 4283, P_ROTA = 889255, COOK = 34771, B = 16656, GAP = "חסר טבח";
-const C = { IDO: 847151, YAAKOV: 770028, MOLU: 853229, KIRAN: 856102, YOSEF: 726883, MEIR: 851353 };
+const C = { IDO: 847151, YAAKOV: 770028, MOLU: 853229, KIRAN: 856102, YOSEF: 726883, MEIR: 851353, EMANUEL: 587613 };
 const EMANUEL = "עמנואל – טבח חדש";
 // [cell id, עובד צפוי (null = תא ריק), הערה צפויה, שינוי]
 type Op = [number, number | null, string, { employee?: number | null; notes?: string; clearEnd?: boolean }];
-// סבב 5 — ירין 10/10: מאיר לא סוגר בחמישי → "שיהיה ב-16 במקום יעקב": ה' ערב 16:00 יעקב ↔ 17:00 מאיר.
-// (סבב 4 — קיראן ו' ערב 17:00 — בהיסטוריית git.)
+// סבב 6 — ירין 10/10: עמנואל = עמנואל בבקוב `587613` (רדום, הופעל מחדש — employee-reactivate.ts) → לתאים עם ההערה.
+// (סבב 5 — ה' ערב מאיר 16:00 ↔ יעקב 17:00 — בהיסטוריית git.)
 const OPS: Op[] = [
-  [119638211, C.YAAKOV, "", { employee: C.MEIR }],                     // ה' ערב 16:00
-  [119638213, C.MEIR, "", { employee: C.YAAKOV }],                     // ה' ערב 17:00
+  [119638216, null, EMANUEL, { employee: C.EMANUEL, notes: "" }],       // ו' בוקר 10:00
+  [119638228, null, EMANUEL, { employee: C.EMANUEL, notes: "" }],       // ש' ערב 17:00
 ];
 // [day, shift, employee, start]
 const CREATES: [number, number, number, string][] = [];
