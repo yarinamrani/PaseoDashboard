@@ -11,7 +11,12 @@ begin
   if tm = 'quotedMessage' then hit := true;
   elsif tm in ('textMessage', 'extendedTextMessage') then
     t := coalesce(new.body->'messageData'->'textMessageData'->>'textMessage', new.body->'messageData'->'extendedTextMessageData'->>'text', '');
-    if t ~ '^\s*(אוכל|שעות)' or (
+    -- 11/10: רשימת אוכל בלי כותרת (2+ שורות, כל שורה "שם סכום") ותשובה "בוקר"/"ערב" לשאלה פתוחה
+    if (select count(*) >= 2 and bool_and(l ~ '^[^0-9]{2,30}[[:space:]:–-]+[0-9]{1,3}[[:space:]]*(₪|ש["״]?ח|שקל|שקלים|nis)?[[:space:].,]*$')
+          from unnest(regexp_split_to_array(trim(t), '[[:space:]]*\n[[:space:]]*')) l where l <> '')
+       or (t ~ '^\s*(בוקר|ערב)\s*$' and exists (select 1 from shift_food_pending where status = 'ask' and created_at > now() - interval '12 hours')) then
+      new.status := 'clock_cmd'; hit := true;
+    elsif t ~ '^\s*(אוכל|שעות)' or (
          t ~ '(^|[^0-9])([01]?[0-9]|2[0-3])[:.][0-5][0-9]' and t !~ '\?'
          and (t ~ '(כניסה|יציאה|נכנס|יצא|התחיל|סיים|עלה|עלתה|הגיע)' or coalesce(array_length(regexp_split_to_array(trim(t), '\s+'), 1), 0) <= 4)) then
       new.status := 'clock_cmd'; hit := true;
@@ -24,4 +29,5 @@ begin
   end if;
   return new;
 end $$;
-create trigger wa_inbox_route_clock before insert on wa_inbox for each row execute function wa_inbox_route_clock();
+-- (הטריגר עצמו נוצר פעם אחת:)
+-- create trigger wa_inbox_route_clock before insert on wa_inbox for each row execute function wa_inbox_route_clock();

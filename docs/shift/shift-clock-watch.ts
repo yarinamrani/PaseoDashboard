@@ -29,6 +29,9 @@
 //   • אוכל עובדים: שורה ראשונה "אוכל עובדים בוקר|ערב [יום] DD/MM", ואז שורה לכל עובד "שם סכום".
 //     שמות נבדקים מול מי שהחתים באותה משמרת בפלור. יש חישוב טיפים → הזנה ל-28859 + חישוב מחדש (פתיחה ונעילה מחדש אם נעול).
 //     אין חישוב → נשמר ב-shift_food_pending ומוזן אוטומטית ב-?mode=live הראשון אחרי שהאחמ"ש מחשב.
+//   • רשימה בלבד בלי כותרת ("מאיה 20" שורה לכל עובד, 2+ שורות): יום העבודה הנוכחי (עד 06:00 — אתמול), בוקר/ערב לפי מי שהחתים;
+//     לא ברור → "בוקר או ערב?" ותשובה במילה אחת (shift_food_pending status='ask'). פחות מחצי שמות מוכרים → wa-green.
+//     סכום מעל 60 מסומן ⚠️. בסיכום הבוקר: אוכל שעדיין מחכה לחישוב טיפים מימים קודמים.
 //   • כמה עובדים / כמה תאריכים: שורה לכל עובד; "שעות 3/10" או "3/10" בשורה נפרדת קובע תאריך לשורות שאחריו.
 //     הודעה שמתחילה ב"שעות" תמיד מגיעה לכאן (גם ארוכה).
 //   ?mode=cmd&text=...&dry=1 — בדיקה ידנית של פקודה.
@@ -458,27 +461,79 @@ async function applyFood(jar: Record<string, string>, date: string, tip: number,
   return `${done.length ? `✅ ${done.join(" · ")}` : ""}${errs.length ? `\n❌ נכשל: ${errs.join(", ")}` : ""}\n${c.s < 300 ? "הטיפים חושבו מחדש" : `⚠️ החישוב מחדש נכשל (${c.s})`}${relock}`;
 }
 
+const FOOD_LINE = /^(.+?)[\s:–-]+(\d{1,3})\s*(₪|ש["״]?ח|שקל(ים)?|nis)?$/i;
+const FOOD_WARN = 60; // סכום מעל זה מסומן ⚠️ (כנראה טעות הקלדה) — מוזן בכל זאת
+const bodyLines = (text: string) => text.split("\n").map((l) => l.trim().replace(/[.,]+$/, "")).filter(Boolean);
+const workDay = () => new Date(ilNow()).getUTCHours() < 6 ? ilYmd(-1) : ilYmd(0);
+
+// "אוכל עובדים בוקר|ערב [יום|DD/MM]" + שורות. בלי בוקר/ערב בכותרת → הבוט מסיק לפי מי שהחתים (foodAuto).
 async function foodCmd(jar: Record<string, string>, text: string, dry: boolean): Promise<string> {
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = bodyLines(text);
   const head = lines[0] ?? "";
   const tip = /ערב|לילה/.test(head) ? TIP_PM : /בוקר|צהריים/.test(head) ? TIP_AM : null;
-  if (!tip) return "❓ איזו משמרת? תכתוב בשורה הראשונה: אוכל עובדים בוקר / ערב + תאריך (למשל: אוכל עובדים ערב 9/10)";
-  const date = dateFrom(head) ?? dayFrom(head) ?? ilYmd(0);
+  const date = dateFrom(head) ?? dayFrom(head) ?? (tip ? ilYmd(0) : workDay());
+  if (!tip) return (await foodAuto(jar, lines.slice(1), dry, text, date, true))!;
+  return await foodRun(jar, date, tip, lines.slice(1), dry, text);
+}
+
+// רשימה בלבד ("מאיה 20 / אורן 15 ...") — בלי כותרת. יום = יום העבודה (עד 06:00 — אתמול).
+// בוקר/ערב: לפי מי שהחתים — עובדים שהיו רק במשמרת אחת מכריעים; כולם בכפולה / סותרים → שואל.
+// force=false: אם פחות מחצי מהשמות הם עובדים שהחתימו — לא שלי (null → wa-green, למשל רשימת קניות).
+async function foodAuto(jar: Record<string, string>, lines: string[], dry: boolean, text: string, date = workDay(), force = false): Promise<string | null> {
+  const rows = lines.map((l) => l.match(FOOD_LINE));
+  if (!force && (rows.length < 2 || rows.some((m) => !m))) return null;
+  const worked = (await appCells(jar, F_APP)).filter((c) => String(c.date).slice(0, 10) === date && !c.is_deleted && c.employee
+    && (AM_SHIFTS.has(c.shift) || PM_SHIFTS.has(c.shift)) && (c.clock_start || c.manual_start));
+  const cands = candsOf(worked);
+  const sides = new Set<number>();
+  let matched = 0;
+  for (const m of rows) {
+    if (!m) continue;
+    const h = await matchEmp(m[1], cands);
+    if (h.length !== 1) continue;
+    matched++;
+    const s = new Set(h[0].cells.map((c: any) => AM_SHIFTS.has(c.shift) ? TIP_AM : TIP_PM));
+    if (s.size === 1) sides.add([...s][0]);
+  }
+  if (!force && matched * 2 < rows.length) return null;
+  if (sides.size === 1) return await foodRun(jar, date, [...sides][0], lines, dry, text);
+  if (dry) return `(dry) ❓ ${ddmm(date)} – בוקר או ערב? (${matched}/${rows.length} זוהו)`;
+  await sb.from("shift_food_pending").insert({ date, tip: 0, entries: [], source: lines.join("\n"), status: "ask" });
+  return `🍽 *אוכל עובדים – ${ddmm(date)}*\n❓ בוקר או ערב? ${sides.size ? "יש עובדים משתי המשמרות" : "כולם בכפולה"}.\nתשיב במילה אחת: *בוקר* / *ערב*`;
+}
+
+// תשובה "בוקר" / "ערב" לשאלה של foodAuto (12 ש' אחרונות)
+async function foodAnswer(jar: Record<string, string>, text: string, dry: boolean): Promise<string | null> {
+  const { data } = await sb.from("shift_food_pending").select("*").eq("status", "ask")
+    .gte("created_at", new Date(Date.now() - 12 * 36e5).toISOString()).order("created_at", { ascending: false }).limit(1);
+  const q = data?.[0]; if (!q) return null;
+  if (!dry) await sb.from("shift_food_pending").update({ status: "answered", done_at: new Date().toISOString() }).eq("id", q.id);
+  return await foodRun(jar, String(q.date), /ערב/.test(text) ? TIP_PM : TIP_AM, bodyLines(q.source ?? ""), dry, q.source ?? "");
+}
+
+async function foodRun(jar: Record<string, string>, date: string, tip: number, lines: string[], dry: boolean, text: string): Promise<string> {
   const label = `${tip === TIP_AM ? "בוקר" : "ערב"} ${ddmm(date)}`;
   const shifts = tip === TIP_AM ? AM_SHIFTS : PM_SHIFTS;
-  const worked = (await appCells(jar, F_APP)).filter((c) => String(c.date).slice(0, 10) === date && !c.is_deleted && c.employee && shifts.has(c.shift) && (c.clock_start || c.manual_start));
-  const cands = candsOf(worked);
-  const entries: { emp: number; cell: number; amount: number; name: string }[] = [], probs: string[] = [];
-  for (const l of lines.slice(1)) {
-    const m = l.replace(/[.,]+$/, "").match(/^(.+?)[\s:–-]+(\d{1,3})\s*(₪|ש["״]?ח|שקל(ים)?|nis)?$/i);
+  const day = (await appCells(jar, F_APP)).filter((c) => String(c.date).slice(0, 10) === date && !c.is_deleted && c.employee && (c.clock_start || c.manual_start));
+  const cands = candsOf(day.filter((c) => shifts.has(c.shift)));
+  const entries: { emp: number; cell: number; amount: number; name: string }[] = [], probs: string[] = [], warns: string[] = [];
+  for (const l of lines) {
+    const m = l.match(FOOD_LINE);
     if (!m) { probs.push(`לא הבנתי "${l}" (צריך: שם סכום)`); continue; }
     const hits = await matchEmp(m[1], cands);
-    if (!hits.length) { probs.push(`"${m[1]}" לא החתים/ה ב${label}`); continue; }
+    if (!hits.length) {
+      const k = nrm(m[1]).slice(0, 2);
+      const sug = k ? candsOf(day).filter((c) => nrm(c.first).startsWith(k)).map((c) => `${c.first} ${c.last}`.trim()).slice(0, 3) : [];
+      probs.push(`"${m[1]}" לא החתים/ה ב${label}${sug.length ? ` – התכוונת ל${sug.join(" / ")}?` : ""}`);
+      continue;
+    }
     if (hits.length > 1) { probs.push(`"${m[1]}" – יש כמה: ${hits.map((h) => `${h.first} ${h.last}`.trim()).join(" · ")}`); continue; }
     const h = hits[0];
-    entries.push({ emp: h.emp, cell: h.cells[0].id, amount: +m[2], name: `${h.first} ${h.last}`.trim() });
+    const name = `${h.first} ${h.last}`.trim();
+    if (+m[2] > FOOD_WARN) warns.push(`${name} ${m[2]} – סכום חריג, לבדוק`);
+    entries.push({ emp: h.emp, cell: h.cells[0].id, amount: +m[2], name });
   }
-  const pr = probs.length ? `\n❌ ${probs.join("\n❌ ")}` : "";
+  const pr = (probs.length ? `\n❌ ${probs.join("\n❌ ")}` : "") + (warns.length ? `\n⚠️ ${warns.join("\n⚠️ ")}` : "");
   if (!entries.length) return `🍽 *אוכל עובדים – ${label}*${pr || "\nלא מצאתי שורות \"שם סכום\"."}`;
   if (dry) return `(dry) 🍽 ${label}: ${entries.map((e) => `${e.name} ${e.amount}`).join(" · ")}${pr}`;
   const res = await applyFood(jar, date, tip, entries);
@@ -501,6 +556,13 @@ async function processPendingFood(jar: Record<string, string>, target: string) {
   }
 }
 
+async function dispatch(jar: Record<string, string>, text: string, dry: boolean): Promise<string | null> {
+  if (/^\s*אוכל/.test(text)) return await foodCmd(jar, text, dry);
+  if (/^\s*(בוקר|ערב)\s*$/.test(text)) return await foodAnswer(jar, text, dry);
+  if (![...text.matchAll(TIME_RE)].length) return await foodAuto(jar, bodyLines(text), dry, text);
+  return await hoursMulti(jar, text, dry);
+}
+
 // הודעות רגילות שהטריגר הפנה (status='clock_cmd')
 async function handleCommands(dry: boolean) {
   const target = await cfg("SHIFT_CLOCK_WA_TARGET");
@@ -518,7 +580,7 @@ async function handleCommands(dry: boolean) {
     let reply: string | null;
     try {
       if (!jar) { jar = {}; if (!(await login(jar))) throw new Error("login failed"); }
-      reply = /^\s*אוכל/.test(text) ? await foodCmd(jar, text, dry) : await hoursMulti(jar, text, dry);
+      reply = await dispatch(jar, text, dry);
     } catch (e) { jar = null; reply = `❌ תקלה: ${String(e).slice(0, 120)}. לא בטוח שהשינוי נכנס – לבדוק בשיפט.`; }
     out.push({ text, reply });
     if (dry) continue;
@@ -542,7 +604,7 @@ Deno.serve(async (req) => {
     if (u.searchParams.get("mode") === "cmd") { // בדיקה ידנית
       const jar: Record<string, string> = {}; await login(jar); cellsCache = {}; aliasCache = null;
       const text = u.searchParams.get("text") ?? "";
-      return json({ text, reply: /^\s*אוכל/.test(text) ? await foodCmd(jar, text, dry) : await hoursMulti(jar, text, dry) });
+      return json({ text, reply: await dispatch(jar, text, dry) });
     }
     const mode = u.searchParams.get("mode") === "digest" ? "digest" : "live";
     const now = ilNow(), today = ymd(now);
@@ -578,7 +640,11 @@ Deno.serve(async (req) => {
       hits = hits.filter((h) => !seen.has(`${h.cell.id}|${h.kind}`));
     }
     if (mode === "live" && !dry) await processPendingFood(jar, await cfg("SHIFT_CLOCK_WA_TARGET")).catch(() => {});
-    const tips = mode === "digest" ? await tipsCheck(jar, yday, floorRaw).catch((e) => [`💸 בדיקת טיפים נכשלה: ${String(e).slice(0, 80)}`]) : [];
+    const tips = mode === "digest" ? await tipsCheck(jar, yday, floorRaw).catch((e) => [`💸 בדיקת טיפים נכשלה: ${String(e).slice(0, 80)}`]) : [] as string[];
+    if (mode === "digest") { // אוכל עובדים שעדיין מחכה לחישוב טיפים מימים קודמים
+      const { data: pend } = await sb.from("shift_food_pending").select("date, tip, entries").eq("status", "pending").lt("date", today);
+      for (const p of pend ?? []) tips.push(`🍽 אוכל עובדים ${p.tip === TIP_AM ? "בוקר" : "ערב"} ${ddmm(String(p.date))} עדיין מחכה – אין חישוב טיפים (${(p.entries ?? []).length} עובדים)`);
+    }
     if (!hits.length && !tips.length) return json({ mode, dry, cells: cells.length, alerts: 0 });
 
     const many = hits.length > 1;
