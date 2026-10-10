@@ -388,7 +388,11 @@ async function hoursCmd(jar: Record<string, string>, text: string, dry: boolean)
   const ids = e.cells.map((c) => c.id);
   const { data: al } = await sb.from("shift_clock_msgs").select("cell_id, kind, partner_id, created_at").in("cell_id", ids).order("created_at", { ascending: false });
   const open = (al ?? []).filter((a: any) => Date.now() - Date.parse(a.created_at) < REPLY_MAX_H * 36e5);
-  const ord = [...e.cells].sort((a, b) => String(a.date).localeCompare(String(b.date)) || dayKey(a.planned_start ?? a.clock_start ?? a.manual_start) - dayKey(b.planned_start ?? b.clock_start ?? b.manual_start));
+  // בלי תאריך בהודעה: יום העבודה הנוכחי קודם (עד 06:00 — אתמול, כי זה סוף משמרת לילה), ורק אם אין לו בו תא — היום השני.
+  // (באג 10/10: "פארס כניסה 10:20" נרשם על תא 09/10 שלא החתים בו, במקום על המשמרת של היום)
+  const workDay = new Date(ilNow()).getUTCHours() < 6 ? ilYmd(-1) : ilYmd(0);
+  const pref = date ? e.cells : (e.cells.some((c) => String(c.date).slice(0, 10) === workDay) ? e.cells.filter((c) => String(c.date).slice(0, 10) === workDay) : e.cells);
+  const ord = [...pref].sort((a, b) => String(a.date).localeCompare(String(b.date)) || dayKey(a.planned_start ?? a.clock_start ?? a.manual_start) - dayKey(b.planned_start ?? b.clock_start ?? b.manual_start));
   let cell: any, kind = "manual", partner: number | null = null;
   const a0 = open.find((a: any) => ids.includes(a.cell_id));
   if (a0) { cell = e.cells.find((c) => c.id === a0.cell_id); kind = a0.kind; partner = a0.partner_id; }
