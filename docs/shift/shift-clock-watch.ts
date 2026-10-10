@@ -175,22 +175,29 @@ const RE_END = /(יציאה|יצא|יצאה|סיים|סיימה|ירד|ירדה|
 type Row = { msg_id: string; line: number; cell_id: number; app: number; kind: string; partner_id: number | null; name: string; date: string };
 type Seg = { row: Row; times: string[]; kw: "start" | "end" | null };
 
+// שם/מספר ושעה יכולים להיות באותה שורה או בשורות נפרדות ("Kiran" ואז "01:30")
 function parse(text: string, rows: Row[]): { segs: Seg[]; problems: string[] } {
   const segs: Seg[] = [], problems: string[] = [];
+  const pick = (raw: string): Row | undefined => {
+    const num = raw.match(/^\s*#?(\d{1,2})(?![:.\d])/);
+    if (num) { const r = rows.find((x) => x.line === +num[1]); if (r) return r; }
+    const low = raw.toLowerCase();
+    const named = rows.filter((r) => r.name.toLowerCase().split(/\s+/).some((w) => w.length >= 2 && low.includes(w)));
+    return named.length === 1 ? named[0] : undefined;
+  };
+  let ctx: Row | undefined, ctxKw: "start" | "end" | null = null;
   for (const raw of text.split(/[\n;]+/).map((s) => s.trim()).filter(Boolean)) {
     const times = [...raw.matchAll(TIME_RE)].map((m) => `${m[1].padStart(2, "0")}:${m[2]}`);
-    if (!times.length) continue;
-    let row: Row | undefined;
-    const num = raw.match(/^\s*#?(\d{1,2})(?![:.\d])/);
-    if (num) row = rows.find((r) => r.line === +num[1]);
-    if (!row) {
-      const named = rows.filter((r) => r.name.split(/\s+/).some((w) => w.length >= 2 && raw.includes(w)));
-      if (named.length === 1) row = named[0];
-      else if (rows.length === 1) row = rows[0];
-    }
-    if (!row) { problems.push(`לא הבנתי על מי "${raw}" – תוסיף מספר שורה או שם`); continue; }
     const kw = RE_START.test(raw) ? "start" : RE_END.test(raw) ? "end" : null;
-    segs.push({ row, times, kw });
+    const row = pick(raw);
+    if (!times.length) { if (row) { ctx = row; ctxKw = kw; } continue; }
+    const target = row ?? ctx ?? (rows.length === 1 ? rows[0] : undefined);
+    if (!target) {
+      problems.push(`לא הבנתי על מי "${raw}" – בהודעה יש כמה עובדים, תכתוב גם שם או מספר שורה (למשל: ${rows[0]?.line ?? 1} ${times[0]})`);
+      continue;
+    }
+    segs.push({ row: target, times, kw: kw ?? (row ? null : ctxKw) });
+    ctx = undefined; ctxKw = null;
   }
   return { segs, problems };
 }
@@ -301,7 +308,9 @@ async function handleReplies(dry: boolean) {
     }
     results.push({ msg: m.idMessage, text, reply });
     if (!dry) {
-      await send(target, reply, m.idMessage);
+      const rid = await send(target, reply, m.idMessage);
+      // תשובה לתשובה של הבוט (למשל אחרי "לא הבנתי") — ממופה לאותם עובדים
+      if (rid) await sb.from("shift_clock_msgs").insert((byMsg.get(quoted) ?? []).map((x) => ({ ...x, msg_id: rid, created_at: undefined })));
       await sb.from("shift_clock_replies").update({ result: { reply } }).eq("msg_id", m.idMessage);
     }
   }
