@@ -15,11 +15,13 @@ const C = { IDO: 847151, YAAKOV: 770028, MOLU: 853229, KIRAN: 856102, YOSEF: 726
 const EMANUEL = "עמנואל – טבח חדש";
 // [cell id, עובד צפוי (null = תא ריק), הערה צפויה, שינוי]
 type Op = [number, number | null, string, { employee?: number | null; notes?: string; clearEnd?: boolean }];
-// סבב 3 — ירין 10/10: "תביא לו 2-3 בקרים" → מאיר עוד בוקר: ג' 10:30 (היום הדליל — יעקב בחופש). סה"כ 3 (א', ג', ו').
-// (סבב 2 — מאיר א' 10:30 + פתיחת ו', יעקב ו' 10:00 — בהיסטוריית git.)
-const OPS: Op[] = [];
+// סבב 4 — ירין 10/10: "תשלים את קיראן לשישי בערב" → ו' ערב 17:00 "חסר טבח" → קיראן (סוגר ו' ופותח ש' 09:00 — ירין יודע).
+// (סבב 3 — מאיר ג' 10:30 — בהיסטוריית git; ירין שינה אחר כך ידנית.)
+const OPS: Op[] = [
+  [119638221, null, GAP, { employee: C.KIRAN, notes: "" }],             // ו' ערב 17:00
+];
 // [day, shift, employee, start]
-const CREATES: [number, number, number, string][] = [[2, B, C.MEIR, "10:30"]]; // ג' בוקר 10:30
+const CREATES: [number, number, number, string][] = [];
 const WEEK = "2026-10-11";
 function dateOf(day: number) { const d = new Date(WEEK + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + day); return d.toISOString().slice(0, 10); }
 
