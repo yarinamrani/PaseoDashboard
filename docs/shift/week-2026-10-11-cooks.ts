@@ -15,10 +15,11 @@ const C = { IDO: 847151, YAAKOV: 770028, MOLU: 853229, KIRAN: 856102, YOSEF: 726
 const EMANUEL = "עמנואל – טבח חדש";
 // [cell id, עובד צפוי (null = תא ריק), הערה צפויה, שינוי]
 type Op = [number, number | null, string, { employee?: number | null; notes?: string; clearEnd?: boolean }];
-// סבב 4 — ירין 10/10: "תשלים את קיראן לשישי בערב" → ו' ערב 17:00 "חסר טבח" → קיראן (סוגר ו' ופותח ש' 09:00 — ירין יודע).
-// (סבב 3 — מאיר ג' 10:30 — בהיסטוריית git; ירין שינה אחר כך ידנית.)
+// סבב 5 — ירין 10/10: מאיר לא סוגר בחמישי → "שיהיה ב-16 במקום יעקב": ה' ערב 16:00 יעקב ↔ 17:00 מאיר.
+// (סבב 4 — קיראן ו' ערב 17:00 — בהיסטוריית git.)
 const OPS: Op[] = [
-  [119638221, null, GAP, { employee: C.KIRAN, notes: "" }],             // ו' ערב 17:00
+  [119638211, C.YAAKOV, "", { employee: C.MEIR }],                     // ה' ערב 16:00
+  [119638213, C.MEIR, "", { employee: C.YAAKOV }],                     // ה' ערב 17:00
 ];
 // [day, shift, employee, start]
 const CREATES: [number, number, number, string][] = [];
