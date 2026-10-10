@@ -21,6 +21,15 @@
 // תשובה בוואטסאפ: reply על הודעת ההתראה. שורה לכל עובד: [מספר שורה או שם] שעה [שעה].
 //   "19:30" (כשבהודעה עובד אחד) · "2 19:30" · "אופל 19:15-01:55" · "כניסה 19:15" · "יציאה 01:55"
 //   שעה אחת בלי מילה → ממלא את מה שחסר (אין יציאה → יציאה; אין כניסה → כניסה; לא החתים בכלל → כניסה).
+// הודעה רגילה (לא reply) בקבוצה — טריגר wa_inbox_route_clock מסמן אותה status='clock_cmd' כדי ש-wa-green לא יענה,
+// ו-?mode=replies (כל דקה) מטפל בה:
+//   • שעות: "קירן יציאה 01:30" · "אופל 19:15-01:55" · "רוני כניסה 19:30 9/10" — עובד לפי שם/כינוי (shift_name_aliases)
+//     בין מי שמשובץ היום/אתמול (או בתאריך שצוין). התא שנבחר: עם התראה פתוחה > חסר בו הצד שצוין > היחיד.
+//     לא זוהה עובד ואין מילת כניסה/יציאה → ההודעה חוזרת ל-wa-green (status='new').
+//   • אוכל עובדים: שורה ראשונה "אוכל עובדים בוקר|ערב [יום] DD/MM", ואז שורה לכל עובד "שם סכום".
+//     שמות נבדקים מול מי שהחתים באותה משמרת בפלור. יש חישוב טיפים → הזנה ל-28859 + חישוב מחדש (פתיחה ונעילה מחדש אם נעול).
+//     אין חישוב → נשמר ב-shift_food_pending ומוזן אוטומטית ב-?mode=live הראשון אחרי שהאחמ"ש מחשב.
+//   ?mode=cmd&text=...&dry=1 — בדיקה ידנית של פקודה.
 // רק שולחים שב-app_config.SHIFT_CLOCK_EDITORS (רשימת chatId מופרדת בפסיקים). הודעות המיפוי בטבלה shift_clock_msgs,
 // תשובות שטופלו ב-shift_clock_replies. wa-green מתעלם מ-reply (quotedMessage), כך שאין כפילות תשובות.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -317,13 +326,192 @@ async function handleReplies(dry: boolean) {
   return { replies: results.length, results };
 }
 
+
+// ---------- פקודות בהודעה רגילה: שעות ואוכל עובדים ----------
+const nrm = (s: string) => (s || "").toLowerCase().replace(/[^a-zא-ת0-9]/g, "");
+const DATE_RE = /(?<![\d:.])(\d{1,2})\/(\d{1,2})(?![\d:.])/;
+type Cand = { emp: number; first: string; last: string; cells: any[] };
+let aliasCache: any[] | null = null;
+async function aliases() {
+  if (!aliasCache) { const { data } = await sb.from("shift_name_aliases").select("alias, employee_id").limit(5000); aliasCache = data ?? []; }
+  return aliasCache;
+}
+function candsOf(cells: any[]): Cand[] {
+  const m = new Map<number, Cand>();
+  for (const c of cells) {
+    if (!c.employee || c.is_deleted) continue;
+    const x = m.get(c.employee) ?? { emp: c.employee, first: c.first_name ?? "", last: c.last_name ?? "", cells: [] };
+    x.cells.push(c); m.set(c.employee, x);
+  }
+  return [...m.values()];
+}
+async function matchEmp(name: string, cands: Cand[]): Promise<Cand[]> {
+  const t = nrm(name); if (!t) return [];
+  let hits = cands.filter((c) => [c.first, c.last, c.first + c.last, c.last + c.first].some((v) => nrm(v) === t));
+  if (!hits.length) { const ids = new Set((await aliases()).filter((a: any) => a.alias === t).map((a: any) => Number(a.employee_id))); hits = cands.filter((c) => ids.has(c.emp)); }
+  if (!hits.length && t.length >= 3) hits = cands.filter((c) => nrm(c.first).startsWith(t) || nrm(c.first + c.last).startsWith(t));
+  return hits;
+}
+const ilYmd = (offsetDays = 0) => ymd(ilNow() + offsetDays * 864e5);
+function dateFrom(text: string): string | null {
+  const m = text.match(DATE_RE); if (!m) return null;
+  const now = new Date(ilNow()); let y = now.getUTCFullYear();
+  const d = `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  if (Date.parse(d) - ilNow() > 60 * 864e5) y--; // 28/12 שנשלח בינואר
+  return `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+}
+let cellsCache: Record<number, any[]> = {};
+async function appCells(jar: Record<string, string>, app: number) {
+  if (!cellsCache[app]) { await switchApp(jar, app); cellsCache[app] = rowsOf(await (await fetch(`${BASE}/api/cells/`, { headers: hdrs(jar) })).json().catch(() => [])); }
+  return cellsCache[app];
+}
+
+// "קירן יציאה 01:30" → null = לא פקודת שעות (מחזירים ל-wa-green)
+async function hoursCmd(jar: Record<string, string>, text: string, dry: boolean): Promise<string | null> {
+  const times = [...text.matchAll(TIME_RE)].map((m) => `${m[1].padStart(2, "0")}:${m[2]}`);
+  if (!times.length) return null;
+  const kw: "start" | "end" | null = RE_START.test(text) ? "start" : RE_END.test(text) ? "end" : null;
+  const date = dateFrom(text);
+  const dates = date ? [date] : [ilYmd(0), ilYmd(-1)];
+  const name = text.replace(TIME_RE, " ").replace(DATE_RE, " ").replace(RE_START, " ").replace(RE_END, " ")
+    .replace(/(^|\s)(ב|ב-|עד|מ|מ-|-|–|שעת|שעה|ל)(?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
+  const cells: any[] = [];
+  for (const app of Object.keys(APPS).map(Number))
+    for (const c of await appCells(jar, app)) if (dates.includes(String(c.date).slice(0, 10)) && !c.is_deleted && c.employee) cells.push({ ...c, app });
+  const hits = await matchEmp(name, candsOf(cells));
+  if (!hits.length) return kw ? `❌ לא מצאתי עובד בשם "${name}" במשמרות של ${dates.map(ddmm).join(" / ")}` : null;
+  if (hits.length > 1) return `❓ "${name}" – יש כמה: ${hits.map((h) => `${h.first} ${h.last}`.trim()).join(" · ")}. תכתוב שם מלא.`;
+  const e = hits[0];
+  // התראות פתוחות על התאים שלו (48 ש' אחרונות)
+  const ids = e.cells.map((c) => c.id);
+  const { data: al } = await sb.from("shift_clock_msgs").select("cell_id, kind, partner_id, created_at").in("cell_id", ids).order("created_at", { ascending: false });
+  const open = (al ?? []).filter((a: any) => Date.now() - Date.parse(a.created_at) < REPLY_MAX_H * 36e5);
+  const ord = [...e.cells].sort((a, b) => String(a.date).localeCompare(String(b.date)) || dayKey(a.planned_start ?? a.clock_start ?? a.manual_start) - dayKey(b.planned_start ?? b.clock_start ?? b.manual_start));
+  let cell: any, kind = "manual", partner: number | null = null;
+  const a0 = open.find((a: any) => ids.includes(a.cell_id));
+  if (a0) { cell = e.cells.find((c) => c.id === a0.cell_id); kind = a0.kind; partner = a0.partner_id; }
+  else if (ord.length === 1) cell = ord[0];
+  else if (kw === "end") cell = [...ord].reverse().find((c) => !c.clock_end && !c.manual_end) ?? ord[ord.length - 1];
+  else if (kw === "start") cell = ord.find((c) => !c.clock_start && !c.manual_start) ?? ord[0];
+  else cell = ord.find((c) => (c.clock_start || c.manual_start) && !(c.clock_end || c.manual_end)) ?? ord.find((c) => !(c.clock_start || c.manual_start));
+  if (!cell) return `❓ ל-${e.first} ${e.last} יש ${ord.length} משמרות (${ord.map((c) => ddmm(String(c.date).slice(0, 10))).join(", ")}). תכתוב כניסה/יציאה או תאריך.`;
+  const row: Row = { msg_id: "", line: 0, cell_id: cell.id, app: cell.app, kind, partner_id: partner, name: `${e.first} ${e.last}`.trim(), date: String(cell.date).slice(0, 10) };
+  if (dry) return `(dry) ${row.name} ${ddmm(row.date)} cell ${row.cell_id} ${kind} ${times.join("-")} ${kw ?? ""}`;
+  return await applySeg(jar, { row, times, kw });
+}
+
+// ---------- אוכל עובדים ----------
+async function applyFood(jar: Record<string, string>, date: string, tip: number, entries: { emp: number; cell: number; amount: number; name: string }[]): Promise<string> {
+  await switchApp(jar, F_APP);
+  const api = async (method: string, path: string, body?: unknown) => {
+    const r = await fetch(`${BASE}/api/${path}`, { method, headers: hdrs(jar, method !== "GET"), body: body ? JSON.stringify(body) : undefined });
+    const t = await r.text(); let j: any = t; try { j = JSON.parse(t); } catch { /* */ }
+    return { s: r.status, j };
+  };
+  const run = rowsOf((await api("GET", `tip-run/?application=${F_APP}&date=${date}`)).j).find((r: any) => r.date === date && r.tip === tip);
+  if (!run) return "NO_RUN";
+  if (run.mode === 2) return `❌ חישוב הטיפים הזה במצב 2 – לא נוגע בו. להזין ידנית בשיפט.`;
+  const food = rowsOf((await api("GET", `tips-variable-values/?application=${F_APP}&date=${date}`)).j).filter((v: any) => v.date === date && v.variable === FOOD_VAR && v.tip === tip);
+  const wasLocked = !!run.is_locked, errs: string[] = [], done: string[] = [];
+  if (wasLocked) { const r = await api("PATCH", `tip-run/${run.id}/?application=${F_APP}`, { is_locked: false }); if (r.s >= 300) return `❌ לא הצלחתי לפתוח את הנעילה של חישוב הטיפים (${r.s}). לא שיניתי כלום.`; }
+  for (const e of entries) {
+    const ex = food.find((x: any) => x.employee === e.emp && x.cell === e.cell);
+    const r = ex ? await api("PATCH", `tips-variable-values/${ex.id}/?application=${F_APP}`, { value: String(e.amount) })
+                 : await api("POST", `tips-variable-values/?application=${F_APP}`, { tip, variable: FOOD_VAR, employee: e.emp, cell: e.cell, date, value: String(e.amount) });
+    if (r.s >= 300) errs.push(`${e.name} (${r.s})`); else done.push(`${e.name} ${e.amount}${ex && String(ex.value) !== String(e.amount) ? ` (היה ${ex.value})` : ""}`);
+  }
+  const c = await api("POST", `tips-calculate/?application=${F_APP}`, { tip, date });
+  let relock = "";
+  if (wasLocked) { const id = c.j?.run?.id ?? run.id; const r = await api("PATCH", `tip-run/${id}/?application=${F_APP}`, { is_locked: true }); relock = r.s < 300 ? " · ננעל מחדש" : ` · ⚠️ הנעילה מחדש נכשלה (${r.s})`; }
+  return `${done.length ? `✅ ${done.join(" · ")}` : ""}${errs.length ? `\n❌ נכשל: ${errs.join(", ")}` : ""}\n${c.s < 300 ? "הטיפים חושבו מחדש" : `⚠️ החישוב מחדש נכשל (${c.s})`}${relock}`;
+}
+
+async function foodCmd(jar: Record<string, string>, text: string, dry: boolean): Promise<string> {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const head = lines[0] ?? "";
+  const tip = /ערב|לילה/.test(head) ? TIP_PM : /בוקר|צהריים/.test(head) ? TIP_AM : null;
+  if (!tip) return "❓ איזו משמרת? תכתוב בשורה הראשונה: אוכל עובדים בוקר / ערב + תאריך (למשל: אוכל עובדים ערב 9/10)";
+  const date = dateFrom(head) ?? ilYmd(0);
+  const label = `${tip === TIP_AM ? "בוקר" : "ערב"} ${ddmm(date)}`;
+  const shifts = tip === TIP_AM ? AM_SHIFTS : PM_SHIFTS;
+  const worked = (await appCells(jar, F_APP)).filter((c) => String(c.date).slice(0, 10) === date && !c.is_deleted && c.employee && shifts.has(c.shift) && (c.clock_start || c.manual_start));
+  const cands = candsOf(worked);
+  const entries: { emp: number; cell: number; amount: number; name: string }[] = [], probs: string[] = [];
+  for (const l of lines.slice(1)) {
+    const m = l.match(/^(.+?)[\s:–-]+(\d{1,3})\s*(₪|ש"ח|שח)?$/);
+    if (!m) { probs.push(`לא הבנתי "${l}" (צריך: שם סכום)`); continue; }
+    const hits = await matchEmp(m[1], cands);
+    if (!hits.length) { probs.push(`"${m[1]}" לא החתים/ה ב${label}`); continue; }
+    if (hits.length > 1) { probs.push(`"${m[1]}" – יש כמה: ${hits.map((h) => `${h.first} ${h.last}`.trim()).join(" · ")}`); continue; }
+    const h = hits[0];
+    entries.push({ emp: h.emp, cell: h.cells[0].id, amount: +m[2], name: `${h.first} ${h.last}`.trim() });
+  }
+  const pr = probs.length ? `\n❌ ${probs.join("\n❌ ")}` : "";
+  if (!entries.length) return `🍽 *אוכל עובדים – ${label}*${pr || "\nלא מצאתי שורות \"שם סכום\"."}`;
+  if (dry) return `(dry) 🍽 ${label}: ${entries.map((e) => `${e.name} ${e.amount}`).join(" · ")}${pr}`;
+  const res = await applyFood(jar, date, tip, entries);
+  if (res === "NO_RUN") {
+    await sb.from("shift_food_pending").insert({ date, tip, entries, source: text.slice(0, 500) });
+    return `🍽 *אוכל עובדים – ${label}*\n⏳ עוד אין חישוב טיפים ל${label}. שמרתי ואזין אוטומטית כשהאחמ"ש יחשב:\n${entries.map((e) => `• ${e.name} ${e.amount}`).join("\n")}${pr}`;
+  }
+  return `🍽 *אוכל עובדים – ${label}*\n${res}${pr}`;
+}
+
+// גביית אוכל שחיכתה לחישוב טיפים — נבדק ב-?mode=live
+async function processPendingFood(jar: Record<string, string>, target: string) {
+  const { data: pend } = await sb.from("shift_food_pending").select("*").eq("status", "pending").order("created_at");
+  for (const p of pend ?? []) {
+    if (Date.now() - Date.parse(p.created_at) > 14 * 864e5) { await sb.from("shift_food_pending").update({ status: "expired" }).eq("id", p.id); continue; }
+    const res = await applyFood(jar, p.date, p.tip, p.entries);
+    if (res === "NO_RUN") continue;
+    await sb.from("shift_food_pending").update({ status: "done", result: res, done_at: new Date().toISOString() }).eq("id", p.id);
+    await send(target, `🍽 *אוכל עובדים – ${p.tip === TIP_AM ? "בוקר" : "ערב"} ${ddmm(p.date)}* (חישוב הטיפים נוצר – הוזן אוטומטית)\n${res}`);
+  }
+}
+
+// הודעות רגילות שהטריגר הפנה (status='clock_cmd')
+async function handleCommands(dry: boolean) {
+  const target = await cfg("SHIFT_CLOCK_WA_TARGET");
+  const { data: rows } = await sb.from("wa_inbox").select("id, body").eq("status", "clock_cmd").order("created_at").limit(5);
+  cellsCache = {}; aliasCache = null; // נתונים טריים בכל ריצה (הפונקציה נשארת חמה בין קריאות)
+  const out: any[] = [];
+  let jar: Record<string, string> | null = null;
+  for (const r of rows ?? []) {
+    if (!dry) {
+      const { data: got } = await sb.from("wa_inbox").update({ status: "clock_processing", updated_at: new Date().toISOString() }).eq("id", r.id).eq("status", "clock_cmd").select("id");
+      if (!got?.length) continue;
+    }
+    const md = r.body?.messageData ?? {};
+    const text = String(md.textMessageData?.textMessage ?? md.extendedTextMessageData?.text ?? "").trim();
+    let reply: string | null;
+    try {
+      if (!jar) { jar = {}; if (!(await login(jar))) throw new Error("login failed"); }
+      reply = /^\s*אוכל/.test(text) ? await foodCmd(jar, text, dry) : await hoursCmd(jar, text, dry);
+    } catch (e) { jar = null; reply = `❌ תקלה: ${String(e).slice(0, 120)}. לא בטוח שהשינוי נכנס – לבדוק בשיפט.`; }
+    out.push({ text, reply });
+    if (dry) continue;
+    if (reply === null) { await sb.from("wa_inbox").update({ status: "new" }).eq("id", r.id); continue; } // לא שלי — ל-wa-green
+    await send(target, reply, r.body?.idMessage);
+    await sb.from("wa_inbox").update({ status: "done", updated_at: new Date().toISOString() }).eq("id", r.id);
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   try {
     const u = new URL(req.url);
     const secret = await cfg("ALFRED_SYNC_SECRET");
     if (!secret || (req.headers.get("x-sync-secret") ?? u.searchParams.get("secret")) !== secret) return new Response("unauthorized", { status: 401 });
     const dry = u.searchParams.get("dry") === "1";
-    if (u.searchParams.get("mode") === "replies") return json({ mode: "replies", dry, ...(await handleReplies(dry)) });
+    if (u.searchParams.get("mode") === "replies") {
+      const rep = await handleReplies(dry);
+      return json({ mode: "replies", dry, ...rep, commands: await handleCommands(dry) });
+    }
+    if (u.searchParams.get("mode") === "cmd") { // בדיקה ידנית
+      const jar: Record<string, string> = {}; await login(jar); cellsCache = {}; aliasCache = null;
+      const text = u.searchParams.get("text") ?? "";
+      return json({ text, reply: /^\s*אוכל/.test(text) ? await foodCmd(jar, text, dry) : await hoursCmd(jar, text, dry) });
+    }
     const mode = u.searchParams.get("mode") === "digest" ? "digest" : "live";
     const now = ilNow(), today = ymd(now);
     const qd = u.searchParams.get("date"), yday = qd && /^\d{4}-\d{2}-\d{2}$/.test(qd) ? qd : ymd(now - 864e5); // ?date= לבדיקה
@@ -357,6 +545,7 @@ Deno.serve(async (req) => {
       const seen = new Set((sent ?? []).map((s: any) => `${s.cell_id}|${s.kind}`));
       hits = hits.filter((h) => !seen.has(`${h.cell.id}|${h.kind}`));
     }
+    if (mode === "live" && !dry) await processPendingFood(jar, await cfg("SHIFT_CLOCK_WA_TARGET")).catch(() => {});
     const tips = mode === "digest" ? await tipsCheck(jar, yday, floorRaw).catch((e) => [`💸 בדיקת טיפים נכשלה: ${String(e).slice(0, 80)}`]) : [];
     if (!hits.length && !tips.length) return json({ mode, dry, cells: cells.length, alerts: 0 });
 
