@@ -5,30 +5,26 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // מולו כל השבוע חוץ מא' ומש' בוקר (כפולות מותר) · יעקב א',ב',ד',ה' ערב, ג' חופש, ו' בוקר, ש' ערב ·
 // עידו ("עידן") א'–ה' בוקר בלבד · עמנואל (טבח חדש, אין משתמש) ו' בוקר + מוצ"ש · אביעד סיים ·
 // אקסטרות לפי צורך: קיראן ו' ערב + ש' כל היום, יוסף טוויל ו' ערב + ש' ערב · מאיר עוד לא הגיש → החורים נשארים.
+// (סבב 1 — 13 PATCH של 10/10 — בהיסטוריית git של הקובץ.)
 // כל פעולה לפי id + מצב צפוי (עובד/הערה); אם התא השתנה — עוצר בלי לכתוב. לא מפרסם. ?confirm=1 לכתיבה.
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const BASE = "https://app.shiftorganizer.com";
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 const P_APP = 4283, P_ROTA = 889255, COOK = 34771, B = 16656, GAP = "חסר טבח";
-const C = { IDO: 847151, YAAKOV: 770028, MOLU: 853229, KIRAN: 856102, YOSEF: 726883 };
+const C = { IDO: 847151, YAAKOV: 770028, MOLU: 853229, KIRAN: 856102, YOSEF: 726883, MEIR: 851353 };
 const EMANUEL = "עמנואל – טבח חדש";
 // [cell id, עובד צפוי (null = תא ריק), הערה צפויה, שינוי]
 type Op = [number, number | null, string, { employee?: number | null; notes?: string; clearEnd?: boolean }];
+// סבב 2 — ירין 10/10: מאיר הגיש בקרים א'–ו', שבת חופש; "אני לא יכול להביא לו בוקר כל יום" → א' 10:30 + פתיחת ו'.
+// פתיחת ו' עוברת מיעקב למאיר → יעקב ל-10:00 (פותר "סוגר ה' ופותח ו'").
 const OPS: Op[] = [
-  [119638191, null, GAP, { employee: C.YAAKOV, notes: "" }],            // א' ערב 16:00
-  [119638197, null, GAP, { employee: C.YAAKOV, notes: "" }],            // ב' ערב 18:00
-  [119638207, null, GAP, { employee: C.YAAKOV, notes: "" }],            // ד' ערב 18:00
-  [119638211, null, GAP, { employee: C.YAAKOV, notes: "" }],            // ה' ערב 16:00
-  [119638215, C.IDO, "", { employee: C.YAAKOV, notes: "פתיחה" }],       // ו' 08:00 — עידו לא בשישי
-  [119638216, null, GAP, { employee: null, notes: EMANUEL }],           // ו' בוקר 10:00
-  [119638218, null, GAP, { employee: C.MOLU, notes: "" }],              // ו' בוקר 11:30
-  [119638219, null, "זיו – טבח חדש", { employee: C.YOSEF, notes: "", clearEnd: true }], // ו' ערב 16:00 (זיו לא נמסר השבוע)
-  [119638220, null, GAP, { employee: C.MOLU, notes: "" }],              // ו' ערב 17:00 (כפולה)
-  [119638223, null, GAP, { employee: C.KIRAN, notes: "פתיחה" }],        // ש' 09:00
-  [119638226, null, GAP, { employee: C.YAAKOV, notes: "" }],            // ש' ערב 15:00
-  [119638227, null, GAP, { employee: C.MOLU, notes: "" }],              // ש' ערב 17:00
-  [119638228, null, GAP, { employee: null, notes: EMANUEL }],           // ש' ערב 17:00
+  [119638190, null, GAP, { employee: C.MEIR, notes: "" }],              // א' בוקר 10:30
+  [119638215, C.YAAKOV, "פתיחה", { employee: C.MEIR }],                // ו' 08:00 פתיחה
 ];
+// [day, shift, employee, start]
+const CREATES: [number, number, number, string][] = [[5, B, C.YAAKOV, "10:00"]]; // ו' בוקר 10:00
+const WEEK = "2026-10-11";
+function dateOf(day: number) { const d = new Date(WEEK + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + day); return d.toISOString().slice(0, 10); }
 
 async function cfg(k: string): Promise<string> {
   const { data } = await sb.from("app_config").select("value").eq("key", k).maybeSingle();
@@ -96,6 +92,8 @@ Deno.serve(async (req) => {
       else if ((cur.employee ?? null) !== emp || String(cur.notes || "") !== notes) bad.push(`${id} עכשיו: ${who(cur)} [${cur.notes || ""}]`);
       return { cur, act };
     });
+    for (const [d, sh, e, st] of CREATES)
+      if (cells.some((c: any) => c.day === d && c.shift === sh && c.employee === e && hhmm(c.planned_start) === st)) bad.push(`יצירה d${d} ${e} ${st} כבר קיימת`);
     if (bad.length) return new Response(JSON.stringify({ error: "mismatch — לא נכתב כלום", bad, now: show(cells) }, null, 1), { status: 409 });
     if (!go) return new Response(JSON.stringify({ dry: true, ops: plan.length, now: show(cells) }, null, 1), { headers: { "Content-Type": "application/json" } });
     const res: any[] = [];
@@ -105,6 +103,16 @@ Deno.serve(async (req) => {
       if ("notes" in p.act) f.notes = p.act.notes;
       if (p.act.clearEnd) { f.planned_end = null; f.planned_end_full = null; }
       res.push({ id: p.cur.id, ...(await patchCell(jar, P_APP, p.cur, f)) });
+    }
+    for (const [day, shift, emp, start] of CREATES) {
+      const date = dateOf(day);
+      const orders = new Set(cells.filter((c: any) => c.day === day).map((c: any) => Number(c.order || 0))); let o = 1; while (orders.has(o)) o++;
+      const payload = { rota: P_ROTA, sub_rota: null, shift, day, date, role: COOK, employee: emp, order: o,
+        planned_start: `${start}:00`, planned_end: null, planned_start_full: `${date}T${start}:00`, planned_end_full: null,
+        manual_start: null, manual_end: null, work_code: 0, break_duration: 0, waiting: 0, absence: "", notes: "", highlight: "" };
+      const r = await fetch(`${BASE}/api/cells/?application=${P_APP}`, { method: "POST", headers: hdrs(jar, true), body: JSON.stringify(payload) });
+      await r.text(); res.push({ d: day, create: r.status });
+      cells.push({ day, order: o });
     }
     return new Response(JSON.stringify({ res, after: show(await load()) }, null, 1), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
