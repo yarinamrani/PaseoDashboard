@@ -362,6 +362,15 @@ function dateFrom(text: string): string | null {
   if (Date.parse(d) - ilNow() > 60 * 864e5) y--; // 28/12 שנשלח בינואר
   return `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
 }
+// "אוכל עובדים שישי ערב" בלי תאריך → השישי האחרון (כולל היום). רק בכותרת האוכל — בשעות "שני" הוא גם שם (שני בריינר).
+const DAYS_HE = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+function dayFrom(text: string): string | null {
+  const w = text.replace(/["״']/g, "").split(/\s+/);
+  let d = w.some((x) => /^(מוצש|מוצאש)$/.test(x)) ? 6 : DAYS_HE.findIndex((n) => w.includes(n) || w.includes("ב" + n));
+  if (d < 0) return null;
+  const back = (new Date(ilNow()).getUTCDay() - d + 7) % 7;
+  return ilYmd(-back);
+}
 let cellsCache: Record<number, any[]> = {};
 async function appCells(jar: Record<string, string>, app: number) {
   if (!cellsCache[app]) { await switchApp(jar, app); cellsCache[app] = rowsOf(await (await fetch(`${BASE}/api/cells/`, { headers: hdrs(jar) })).json().catch(() => [])); }
@@ -454,14 +463,14 @@ async function foodCmd(jar: Record<string, string>, text: string, dry: boolean):
   const head = lines[0] ?? "";
   const tip = /ערב|לילה/.test(head) ? TIP_PM : /בוקר|צהריים/.test(head) ? TIP_AM : null;
   if (!tip) return "❓ איזו משמרת? תכתוב בשורה הראשונה: אוכל עובדים בוקר / ערב + תאריך (למשל: אוכל עובדים ערב 9/10)";
-  const date = dateFrom(head) ?? ilYmd(0);
+  const date = dateFrom(head) ?? dayFrom(head) ?? ilYmd(0);
   const label = `${tip === TIP_AM ? "בוקר" : "ערב"} ${ddmm(date)}`;
   const shifts = tip === TIP_AM ? AM_SHIFTS : PM_SHIFTS;
   const worked = (await appCells(jar, F_APP)).filter((c) => String(c.date).slice(0, 10) === date && !c.is_deleted && c.employee && shifts.has(c.shift) && (c.clock_start || c.manual_start));
   const cands = candsOf(worked);
   const entries: { emp: number; cell: number; amount: number; name: string }[] = [], probs: string[] = [];
   for (const l of lines.slice(1)) {
-    const m = l.match(/^(.+?)[\s:–-]+(\d{1,3})\s*(₪|ש"ח|שח)?$/);
+    const m = l.replace(/[.,]+$/, "").match(/^(.+?)[\s:–-]+(\d{1,3})\s*(₪|ש["״]?ח|שקל(ים)?|nis)?$/i);
     if (!m) { probs.push(`לא הבנתי "${l}" (צריך: שם סכום)`); continue; }
     const hits = await matchEmp(m[1], cands);
     if (!hits.length) { probs.push(`"${m[1]}" לא החתים/ה ב${label}`); continue; }
