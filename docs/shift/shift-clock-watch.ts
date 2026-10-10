@@ -29,6 +29,8 @@
 //   • אוכל עובדים: שורה ראשונה "אוכל עובדים בוקר|ערב [יום] DD/MM", ואז שורה לכל עובד "שם סכום".
 //     שמות נבדקים מול מי שהחתים באותה משמרת בפלור. יש חישוב טיפים → הזנה ל-28859 + חישוב מחדש (פתיחה ונעילה מחדש אם נעול).
 //     אין חישוב → נשמר ב-shift_food_pending ומוזן אוטומטית ב-?mode=live הראשון אחרי שהאחמ"ש מחשב.
+//   • כמה עובדים / כמה תאריכים: שורה לכל עובד; "שעות 3/10" או "3/10" בשורה נפרדת קובע תאריך לשורות שאחריו.
+//     הודעה שמתחילה ב"שעות" תמיד מגיעה לכאן (גם ארוכה).
 //   ?mode=cmd&text=...&dry=1 — בדיקה ידנית של פקודה.
 // רק שולחים שב-app_config.SHIFT_CLOCK_EDITORS (רשימת chatId מופרדת בפסיקים). הודעות המיפוי בטבלה shift_clock_msgs,
 // תשובות שטופלו ב-shift_clock_replies. wa-green מתעלם מ-reply (quotedMessage), כך שאין כפילות תשובות.
@@ -400,6 +402,23 @@ async function hoursCmd(jar: Record<string, string>, text: string, dry: boolean)
   return await applySeg(jar, { row, times, kw });
 }
 
+// כמה שורות / כמה תאריכים בהודעה אחת. שורה בלי שעה עם תאריך ("3/10" / "שעות 3/10") קובעת את התאריך לשורות שאחריה;
+// שורה עם תאריך משלה גוברת עליו.
+async function hoursMulti(jar: Record<string, string>, text: string, dry: boolean): Promise<string | null> {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const forced = /^\s*שעות/.test(lines[0] ?? "");
+  const timed = lines.filter((l) => [...l.matchAll(TIME_RE)].length);
+  if (!forced && timed.length <= 1) return await hoursCmd(jar, text, dry);
+  const out: string[] = [];
+  let ctx: string | null = null;
+  for (const l of lines) {
+    if (![...l.matchAll(TIME_RE)].length) { const d = dateFrom(l); if (d) ctx = d; continue; }
+    const line = dateFrom(l) || !ctx ? l : `${l} ${ctx.slice(8, 10)}/${ctx.slice(5, 7)}`;
+    out.push((await hoursCmd(jar, line, dry)) ?? `❌ לא הבנתי "${l}" – צריך שם ושעה (למשל: רוני כניסה 19:30)`);
+  }
+  return out.length ? out.join("\n") : null;
+}
+
 // ---------- אוכל עובדים ----------
 async function applyFood(jar: Record<string, string>, date: string, tip: number, entries: { emp: number; cell: number; amount: number; name: string }[]): Promise<string> {
   await switchApp(jar, F_APP);
@@ -486,7 +505,7 @@ async function handleCommands(dry: boolean) {
     let reply: string | null;
     try {
       if (!jar) { jar = {}; if (!(await login(jar))) throw new Error("login failed"); }
-      reply = /^\s*אוכל/.test(text) ? await foodCmd(jar, text, dry) : await hoursCmd(jar, text, dry);
+      reply = /^\s*אוכל/.test(text) ? await foodCmd(jar, text, dry) : await hoursMulti(jar, text, dry);
     } catch (e) { jar = null; reply = `❌ תקלה: ${String(e).slice(0, 120)}. לא בטוח שהשינוי נכנס – לבדוק בשיפט.`; }
     out.push({ text, reply });
     if (dry) continue;
@@ -510,7 +529,7 @@ Deno.serve(async (req) => {
     if (u.searchParams.get("mode") === "cmd") { // בדיקה ידנית
       const jar: Record<string, string> = {}; await login(jar); cellsCache = {}; aliasCache = null;
       const text = u.searchParams.get("text") ?? "";
-      return json({ text, reply: /^\s*אוכל/.test(text) ? await foodCmd(jar, text, dry) : await hoursCmd(jar, text, dry) });
+      return json({ text, reply: /^\s*אוכל/.test(text) ? await foodCmd(jar, text, dry) : await hoursMulti(jar, text, dry) });
     }
     const mode = u.searchParams.get("mode") === "digest" ? "digest" : "live";
     const now = ilNow(), today = ymd(now);
