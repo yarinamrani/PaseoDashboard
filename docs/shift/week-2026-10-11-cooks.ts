@@ -15,14 +15,11 @@ const C = { IDO: 847151, YAAKOV: 770028, MOLU: 853229, KIRAN: 856102, YOSEF: 726
 const EMANUEL = "עמנואל – טבח חדש";
 // [cell id, עובד צפוי (null = תא ריק), הערה צפויה, שינוי]
 type Op = [number, number | null, string, { employee?: number | null; notes?: string; clearEnd?: boolean }];
-// סבב 2 — ירין 10/10: מאיר הגיש בקרים א'–ו', שבת חופש; "אני לא יכול להביא לו בוקר כל יום" → א' 10:30 + פתיחת ו'.
-// פתיחת ו' עוברת מיעקב למאיר → יעקב ל-10:00 (פותר "סוגר ה' ופותח ו'").
-const OPS: Op[] = [
-  [119638190, null, GAP, { employee: C.MEIR, notes: "" }],              // א' בוקר 10:30
-  [119638215, C.YAAKOV, "פתיחה", { employee: C.MEIR }],                // ו' 08:00 פתיחה
-];
+// סבב 3 — ירין 10/10: "תביא לו 2-3 בקרים" → מאיר עוד בוקר: ג' 10:30 (היום הדליל — יעקב בחופש). סה"כ 3 (א', ג', ו').
+// (סבב 2 — מאיר א' 10:30 + פתיחת ו', יעקב ו' 10:00 — בהיסטוריית git.)
+const OPS: Op[] = [];
 // [day, shift, employee, start]
-const CREATES: [number, number, number, string][] = [[5, B, C.YAAKOV, "10:00"]]; // ו' בוקר 10:00
+const CREATES: [number, number, number, string][] = [[2, B, C.MEIR, "10:30"]]; // ג' בוקר 10:30
 const WEEK = "2026-10-11";
 function dateOf(day: number) { const d = new Date(WEEK + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + day); return d.toISOString().slice(0, 10); }
 
