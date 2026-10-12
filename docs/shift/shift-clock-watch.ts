@@ -621,7 +621,7 @@ const DM_LATE_MIN = 120, DM_MAX_H = 16;
 // כניסה מוקדמת (12/10): עובד שמגיע לטאלה לפני שפסאו (והשעון) נפתח שולח "IN" או שעה. בלי שעה — שעת קבלת ההודעה.
 // אם כבר יש לו תא היום בלי כניסה — מעדכנים מיד; אחרת נשמר ב-shift_clock_early ומוזן כשהחתמת היציאה יוצרת תא (processEarly).
 const IN_RE = /^\s*(in|נכנסתי|נכנסת|הגעתי|เข้างาน|เข้า|ถึงแล้ว)\s*[.!]*\s*$/i;
-const EARLY_BACK_H = 4, EARLY_AHEAD_MIN = 10;
+const EARLY_BACK_H = 12, EARLY_AHEAD_MIN = 10;
 function ilClock(ms: number) {
   const d = new Date(new Date(ms).toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
   const p = (n: number) => String(n).padStart(2, "0");
