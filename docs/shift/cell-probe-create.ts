@@ -34,6 +34,16 @@ Deno.serve(async (req) => {
     out.day = rows.filter((c: any) => c.employee === emp && String(c.date).slice(0, 10) === date)
       .map((c: any) => ({ id: c.id, is_deleted: c.is_deleted, ps: c.planned_start, cs: c.clock_start, ce: c.clock_end, ms: c.manual_start, me: c.manual_end, msf: c.manual_start_full, mef: c.manual_end_full, role: c.role, shift: c.shift }));
   }
+  const from = u.searchParams.get("scan"); // ?scan=YYYY-MM-DD — תאים עם יציאה בלי כניסה + שאר התאים של אותו עובד באותו יום
+  if (from) {
+    const j = await (await fetch(`${BASE}/api/cells/`, { headers: hdrs(jar) })).json().catch(() => []);
+    const rows = (Array.isArray(j) ? j : (j?.results ?? [])).filter((c: any) => !c.is_deleted && c.employee && String(c.date).slice(0, 10) >= from);
+    const hm = (t: any) => t ? String(t).slice(0, 5) : "-";
+    const sum = (c: any) => `${c.id} p${hm(c.planned_start)}-${hm(c.planned_end)} c${hm(c.clock_start)}-${hm(c.clock_end)} m${hm(c.manual_start)}-${hm(c.manual_end)}`;
+    out.scan = rows.filter((c: any) => !c.clock_start && c.clock_end).map((c: any) => ({
+      d: String(c.date).slice(0, 10), n: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(), cell: sum(c),
+      sib: rows.filter((x: any) => x.employee === c.employee && x.date === c.date && x.id !== c.id).map(sum) }));
+  }
   if (u.searchParams.get("create") === "1" && u.searchParams.get("confirm") === "1") {
     const p = await fetch(`${BASE}/api/cells/?application=${app}`, { method: "POST", headers: hdrs(jar, true), body: u.searchParams.get("body") ?? "{}" });
     const t = await p.text(); let jj: any = t; try { jj = JSON.parse(t); } catch { /* */ }

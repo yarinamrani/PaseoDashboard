@@ -627,7 +627,7 @@ function ilClock(ms: number) {
   const p = (n: number) => String(n).padStart(2, "0");
   return { date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, t: `${p(d.getHours())}:${p(d.getMinutes())}` };
 }
-async function earlyIn(jar: Record<string, string>, ids: Set<number>, who: string, text: string, given: string | null, recvMs: number, dry: boolean): Promise<{ msg: string; row: Row | null }> {
+async function earlyIn(jar: Record<string, string>, ids: Set<number>, homes: { id: number; app: number }[], who: string, text: string, given: string | null, recvMs: number, dry: boolean): Promise<{ msg: string; row: Row | null }> {
   const quote = `"${text.slice(0, 100)}"`;
   const none = { msg: `💬 *${who}* כתב/ה לבוט: ${quote} — אין לו/ה תקלת שעון פתוחה מה-${REPLY_MAX_H} ש' האחרונות. לא עדכנתי.`, row: null };
   const asked = IN_RE.test(text) || RE_START.test(text);
@@ -642,6 +642,16 @@ async function earlyIn(jar: Record<string, string>, ids: Set<number>, who: strin
     .sort((a, b) => dayKey(a.planned_start ?? a.clock_end ?? a.manual_end) - dayKey(b.planned_start ?? b.clock_end ?? b.manual_end))[0];
   if (!open && cands.length) {
     const c0 = cands[0];
+    if (!c0.clock_start && c0.manual_start && hm(c0.manual_start) !== t) { // תיקון לכניסה שהבוט רשם היום
+      const { data: mineEarly } = await sb.from("shift_clock_early").select("id").eq("cell_id", c0.id).limit(1);
+      if (mineEarly?.length) {
+        if (dry) return { msg: `(dry) early fix ${who} ${hm(c0.manual_start)} → ${t}`, row: null };
+        const row: Row = { msg_id: "", line: 1, cell_id: c0.id, app: c0.app, kind: "manual", partner_id: null, name: who, date: rc.date };
+        const res = await applySeg(jar, { row, times: [t], kw: "start" });
+        await sb.from("shift_clock_early").update({ t, recv_t: rc.t, src: text.slice(0, 200) }).eq("id", mineEarly[0].id);
+        return { msg: `🕗 *${who}* – תיקן/ה כניסה ל-${t} (נשלח ב-${rc.t})\n${res}`, row };
+      }
+    }
     return { msg: `ℹ️ *${who}* שלח/ה לבוט כניסה ${t} — כבר יש כניסה בשיפט היום (${hm(c0.manual_start ?? c0.clock_start)}). לא שיניתי.`, row: null };
   }
   const openEnd = open ? (open.manual_end ?? open.clock_end) : null;
@@ -657,6 +667,15 @@ async function earlyIn(jar: Record<string, string>, ids: Set<number>, who: strin
   if (dry) return { msg: `(dry) early ${who} ${ddmm(rc.date)} כניסה ${t} → pending`, row: null };
   const { data: dup } = await sb.from("shift_clock_early").select("id, t").eq("status", "pending").eq("date", rc.date).overlaps("emp_ids", [...ids]).limit(1);
   const odd = mins(t) < EARLY_FROM_H * 60 || mins(t) > EARLY_TO_H * 60 ? `\n⚠️ שעה חריגה לכניסה (בד"כ ${EARLY_FROM_H}:00–${EARLY_TO_H}:00) — לבדוק` : "";
+  if (!dup?.length && homes.length) { // 12/10: יוצרים תא מיד — החתמת היציאה מתחברת אליו (נבדק עם ארמט)
+    const cr = await createCell(jar, homes[0].app, rc.date, homes[0].id, t);
+    if (cr.id) {
+      const row: Row = { msg_id: "", line: 1, cell_id: cr.id, app: homes[0].app, kind: "manual", partner_id: null, name: who, date: rc.date };
+      await sb.from("shift_clock_early").insert({ emp_ids: [...ids], name: who, date: rc.date, t, recv_t: rc.t, src: text.slice(0, 200),
+        status: "done", cell_id: cr.id, app: homes[0].app, result: "created", done_at: new Date().toISOString() });
+      return { msg: `🕗 *${who}* – כניסה ${t} (נשלח לבוט ב-${rc.t})\n✅ נרשם בשיפט${odd}\n↩️ לתיקון — להשיב כאן: כניסה 08:15`, row };
+    }
+  }
   if (dup?.length) {
     if (dup[0].t === t) return { msg: "", row: null }; // אותה שעה שוב — בלי הודעה כפולה
     await sb.from("shift_clock_early").update({ t, recv_t: rc.t, src: text.slice(0, 200) }).eq("id", dup[0].id);
@@ -664,6 +683,53 @@ async function earlyIn(jar: Record<string, string>, ids: Set<number>, who: strin
   }
   await sb.from("shift_clock_early").insert({ emp_ids: [...ids], name: who, date: rc.date, t, recv_t: rc.t, src: text.slice(0, 200) });
   return { msg: `🕗 *${who}* – כניסה ${t} (נשלח לבוט ב-${rc.t})\nאין עדיין משמרת בשיפט — יוזן אוטומטית אחרי החתמת היציאה.${odd}`, row: null };
+}
+async function createCell(jar: Record<string, string>, app: number, date: string, emp: number, t: string): Promise<{ id?: number; err?: string }> {
+  const d0 = Date.parse(`${date}T00:00:00Z`), dow = new Date(d0).getUTCDay();
+  const wk = ymd(d0 - dow * 864e5), we = ymd(d0 + (6 - dow) * 864e5);
+  const rota = (await appCells(jar, app)).find((c: any) => c.rota && String(c.date).slice(0, 10) >= wk && String(c.date).slice(0, 10) <= we)?.rota;
+  if (!rota) return { err: "no rota" };
+  await switchApp(jar, app);
+  const body = { rota, sub_rota: null, shift: null, day: dow, date, role: null, employee: emp, order: 1,
+    planned_start: null, planned_end: null, planned_start_full: null, planned_end_full: null,
+    manual_start: `${t}:00`, manual_end: null, manual_start_full: fullOf(date, t), manual_end_full: null,
+    work_code: 0, break_duration: 0, waiting: 0, absence: "", notes: "", highlight: "" }; // POST חלקי מחזיר 500
+  const r = await fetch(`${BASE}/api/cells/?application=${app}`, { method: "POST", headers: hdrs(jar, true), body: JSON.stringify(body) });
+  if (!r.ok) return { err: String(r.status) };
+  const j = await r.json().catch(() => null);
+  return j?.id ? { id: j.id } : { err: "no id" };
+}
+
+// 12/10: "יציאה" שהיא בעצם כניסה — עובד שובץ ל-17:00 והחתים יציאה ב-17:06 (בלי כניסה). רושמים manual_start = שעת ההחתמה,
+// ומחכים ליציאה האמיתית; אם לא הגיעה עד סוף המשמרת — התראת no_exit רגילה (גם בהודעה פרטית לבוט).
+const FLIP_BEFORE_MIN = 30, FLIP_AFTER_MIN = 60;
+async function processFlips(jar: Record<string, string>, cells: Cell[], groups: Map<string, Cell[]>, now: number): Promise<Hit[]> {
+  const target = await cfg("SHIFT_CLOCK_WA_TARGET");
+  const hits: Hit[] = [];
+  for (const c of cells) {
+    if (c.cs || !c.ce || fixed(c) || !c.ps) continue;
+    const d = dayKey(c.ce) - dayKey(c.ps);
+    if (d < -FLIP_BEFORE_MIN || d > FLIP_AFTER_MIN) continue;
+    const sib = groups.get(`${c.app}|${c.date}|${c.emp}`) ?? [];
+    if (sib.slice(0, sib.indexOf(c)).some((x) => x.cs && !x.ce && !fixed(x))) continue; // מעבר בכפולה, לא היפוך
+    const t = hm(c.ce);
+    const res = await applySeg(jar, { row: { msg_id: "", line: 1, cell_id: c.id, app: c.app, kind: "manual", partner_id: null, name: c.name, date: c.date }, times: [t], kw: "start" });
+    if (!res.startsWith("✅")) continue;
+    c.ms = `${t}:00`;
+    await sb.from("shift_clock_flips").upsert([{ cell_id: c.id, app: c.app, emp: c.emp, name: c.name, date: c.date, t }], { onConflict: "cell_id", ignoreDuplicates: true });
+    if (target) await send(target, `🔄 *${c.name}* (${APPS[c.app]}) – החתים/ה *יציאה* ב-${t}, והמשמרת מתוכננת ל-${hm(c.ps)} → נרשם ככניסה ${t}.\nהיציאה בסוף המשמרת תיקלט כרגיל; אם לא תגיע — אתריע.`);
+  }
+  const { data: open } = await sb.from("shift_clock_flips").select("*").eq("status", "open");
+  for (const f of open ?? []) {
+    const c = cells.find((x) => x.id === f.cell_id);
+    if (!c) { if (Date.now() - Date.parse(f.created_at) > 2 * 864e5) await sb.from("shift_clock_flips").update({ status: "expired" }).eq("cell_id", f.cell_id); continue; }
+    const end = c.me ?? (c.ce && hm(c.ce) !== f.t ? c.ce : null);
+    if (end) { await sb.from("shift_clock_flips").update({ status: "done", result: hm(end), done_at: new Date().toISOString() }).eq("cell_id", f.cell_id); continue; }
+    const due = c.pe ? endAt(c.date, c.ps ?? f.t, c.pe) + NO_EXIT_GRACE_MIN * 6e4 : at(c.date, f.t) + NO_END_MAX_H * 36e5;
+    if (now > due) hits.push({ cell: { ...c, cs: `${f.t}:00`, ce: null }, kind: "no_exit",
+      line: `⏰ *${c.name}* (${APPS[c.app]}, ${ddmm(c.date)}) – נכנס/ה ב-${f.t} (תוקן מהחתמת יציאה) ואין יציאה – מתי יצא/ה?` });
+  }
+  return hits;
 }
 async function processEarly(jar: Record<string, string>, cells: Cell[], dates: string[]) {
   const { data: pend } = await sb.from("shift_clock_early").select("*").eq("status", "pending");
@@ -706,7 +772,7 @@ async function dmOne(jar: Record<string, string>, ph: string, text: string, dry:
     seen.add(a.cell_id);
     const cell = (await appCells(jar, a.app)).find((c: any) => c.id === a.cell_id);
     if (!cell || cell.is_deleted || !ids.has(Number(cell.employee))) continue;
-    if (cell.manual_start || cell.manual_end) continue; // התקלה כבר תוקנה — לא לדרוס
+    if (a.kind === "exit_no_entry" ? cell.manual_start : cell.manual_end) continue; // התקלה כבר תוקנה — לא לדרוס
     const kw: "start" | "end" = RE_START.test(text) ? "start" : RE_END.test(text) ? "end" : a.kind === "exit_no_entry" ? "start" : "end";
     const t = times[0], label = kw === "end" ? "יציאה" : "כניסה";
     const row: Row = { msg_id: "", line: 1, cell_id: a.cell_id, app: a.app, kind: a.kind, partner_id: a.partner_id, name: a.name, date: a.date };
@@ -723,7 +789,8 @@ async function dmOne(jar: Record<string, string>, ph: string, text: string, dry:
     const res = await applySeg(jar, { row, times: [t], kw });
     return { msg: `📲 *${a.name}* שלח/ה ${label} ${t}\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`, row };
   }
-  return await earlyIn(jar, ids, who, text, times[0] ?? null, recvMs, dry);
+  const homes = mine.filter((e: any) => APPS[e.application]).map((e: any) => ({ id: Number(e.id), app: Number(e.application) }));
+  return await earlyIn(jar, ids, homes, who, text, times[0] ?? null, recvMs, dry);
 }
 async function handleDms(dry: boolean) {
   const target = await cfg("SHIFT_CLOCK_WA_TARGET");
@@ -802,8 +869,9 @@ Deno.serve(async (req) => {
     for (const c of cells) { const k = `${c.app}|${c.date}|${c.emp}`; groups.set(k, [...(groups.get(k) ?? []), c]); }
     for (const g of groups.values()) g.sort((a, b) => dayKey(startOf(a)) - dayKey(startOf(b)));
     if (mode === "live" && !dry) await processEarly(jar, cells, dates).catch(() => {});
+    const flipHits = mode === "live" && !dry ? await processFlips(jar, cells, groups, now).catch(() => [] as Hit[]) : [];
 
-    let hits = cells.flatMap((c) => check(c, groups.get(`${c.app}|${c.date}|${c.emp}`)!, now, mode));
+    let hits = [...cells.flatMap((c) => check(c, groups.get(`${c.app}|${c.date}|${c.emp}`)!, now, mode)), ...flipHits];
     if (mode === "live" && hits.length) {
       const { data: sent } = await sb.from("shift_clock_alerts").select("cell_id, kind").in("cell_id", hits.map((h) => h.cell.id));
       const seen = new Set((sent ?? []).map((s: any) => `${s.cell_id}|${s.kind}`));
