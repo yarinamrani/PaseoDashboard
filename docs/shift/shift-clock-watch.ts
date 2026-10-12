@@ -713,17 +713,22 @@ async function processFlips(jar: Record<string, string>, cells: Cell[], groups: 
     const sib = groups.get(`${c.app}|${c.date}|${c.emp}`) ?? [];
     if (sib.slice(0, sib.indexOf(c)).some((x) => x.cs && !x.ce && !fixed(x))) continue; // מעבר בכפולה, לא היפוך
     const t = hm(c.ce);
-    const res = await applySeg(jar, { row: { msg_id: "", line: 1, cell_id: c.id, app: c.app, kind: "manual", partner_id: null, name: c.name, date: c.date }, times: [t], kw: "start" });
-    if (!res.startsWith("✅")) continue;
-    c.ms = `${t}:00`;
+    // מוחקים את ה"יציאה" ורושמים אותה ככניסה — כך היציאה האמיתית בשעון נכנסת לאותו תא (אחרת שיפט רואה משמרת של 0 דק')
+    await switchApp(jar, c.app);
+    const cur = await (await fetch(`${BASE}/api/cells/${c.id}/?application=${c.app}`, { headers: hdrs(jar) })).json().catch(() => null);
+    if (!cur?.version) continue;
+    const pr = await fetch(`${BASE}/api/cells/${c.id}/?application=${c.app}`, { method: "PATCH", headers: hdrs(jar, true),
+      body: JSON.stringify({ manual_start: `${t}:00`, manual_start_full: fullOf(c.date, t), clock_end: null, clock_end_full: null, version: cur.version }) });
+    if (!pr.ok) continue;
+    c.ms = `${t}:00`; c.ce = null;
     await sb.from("shift_clock_flips").upsert([{ cell_id: c.id, app: c.app, emp: c.emp, name: c.name, date: c.date, t }], { onConflict: "cell_id", ignoreDuplicates: true });
-    if (target) await send(target, `🔄 *${c.name}* (${APPS[c.app]}) – החתים/ה *יציאה* ב-${t}, והמשמרת מתוכננת ל-${hm(c.ps)} → נרשם ככניסה ${t}.\nהיציאה בסוף המשמרת תיקלט כרגיל; אם לא תגיע — אתריע.`);
+    if (target) await send(target, `🔄 *${c.name}* (${APPS[c.app]}) – החתים/ה *יציאה* ב-${t}, והמשמרת מתוכננת ל-${hm(c.ps)} → תוקן לכניסה ${t} (היציאה נמחקה).\nהיציאה בסוף המשמרת תיקלט כרגיל בשעון; אם לא תגיע — אתריע.`);
   }
   const { data: open } = await sb.from("shift_clock_flips").select("*").eq("status", "open");
   for (const f of open ?? []) {
     const c = cells.find((x) => x.id === f.cell_id);
     if (!c) { if (Date.now() - Date.parse(f.created_at) > 2 * 864e5) await sb.from("shift_clock_flips").update({ status: "expired" }).eq("cell_id", f.cell_id); continue; }
-    const end = c.me ?? (c.ce && hm(c.ce) !== f.t ? c.ce : null);
+    const end = c.me ?? c.ce; // ה"יציאה" המקורית נמחקה — כל clock_end עכשיו הוא היציאה האמיתית
     if (end) { await sb.from("shift_clock_flips").update({ status: "done", result: hm(end), done_at: new Date().toISOString() }).eq("cell_id", f.cell_id); continue; }
     const due = c.pe ? endAt(c.date, c.ps ?? f.t, c.pe) + NO_EXIT_GRACE_MIN * 6e4 : at(c.date, f.t) + NO_END_MAX_H * 36e5;
     if (now > due) hits.push({ cell: { ...c, cs: `${f.t}:00`, ce: null }, kind: "no_exit",
