@@ -1,12 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-// הפעלה מחדש של עובד רדום במטבח 4283 (?emp=). בלי confirm — קריאה בלבד: מצב העובד מול עובד פעיל להשוואה (?ref=), בלי פרטים אישיים.
-// ?confirm=1 — מפעיל (user.is_active=true) ורק את זה. לא מדפיס טלפון/ת"ז/מייל/כתובת.
+// הפעלה / השבתה של עובד בשיפט (?emp=, ?app= ברירת מחדל מטבח 4283). בלי confirm — קריאה בלבד: מצב העובד מול עובד פעיל להשוואה (?ref=), בלי פרטים אישיים.
+// ?confirm=1 — קובע user.is_active (ברירת מחדל true; &active=0 = השבתה) ורק את זה. לא מדפיס טלפון/ת"ז/מייל/כתובת.
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const BASE = "https://app.shiftorganizer.com";
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
-const P_APP = 4283, COOK = 34771, DISH = 34937;
+const COOK = 34771, DISH = 34937;
 const EMPS = [847151, 770028, 851353, 543969, 852125, 849311, 853229, 765292, 765295, 732289, 808241, 811255, 829782];
 
 async function cfg(k: string): Promise<string> {
@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
     const u = new URL(req.url);
     const secret = await cfg("ALFRED_SYNC_SECRET");
     if (!secret || (req.headers.get("x-sync-secret") ?? u.searchParams.get("secret")) !== secret) return new Response("unauthorized", { status: 401 });
+    const P_APP = Number(u.searchParams.get("app") || 4283), want = u.searchParams.get("active") !== "0";
     const emp = Number(u.searchParams.get("emp")), ref = Number(u.searchParams.get("ref") || 0), go = u.searchParams.get("confirm") === "1";
     const jar: Record<string, string> = {};
     if (!(await login(jar))) return new Response(JSON.stringify({ error: "login failed" }), { status: 502 });
@@ -61,14 +62,15 @@ Deno.serve(async (req) => {
     const cur = await get(emp);
     if (!go) return new Response(JSON.stringify({ emp: { s: cur.s, j: scrub(cur.j) }, ref: ref ? scrub((await get(ref)).j) : null }, null, 1), { headers: { "Content-Type": "application/json" } });
     if (!cur.j) return new Response(JSON.stringify({ error: "not found", s: cur.s }), { status: 404 });
+    if (cur.j.user?.is_active === want) return new Response(JSON.stringify({ already: want }), { headers: { "Content-Type": "application/json" } });
     // is_active יושב על user. קודם PATCH מינימלי, ואם לא נקלט — עם אובייקט user מלא (כמו שהאפליקציה שולחת).
     const tries: any[] = [];
-    for (const body of [{ user: { id: cur.j.user.id, is_active: true } }, { user: { ...cur.j.user, is_active: true } }]) {
+    for (const body of [{ user: { id: cur.j.user.id, is_active: want } }, { user: { ...cur.j.user, is_active: want } }]) {
       const r = await fetch(`${BASE}/api/employees/${emp}/?application=${P_APP}`, { method: "PATCH", headers: hdrs(jar, true), body: JSON.stringify(body) });
       const t = await r.text();
       const after = await get(emp);
       tries.push({ s: r.status, err: r.ok ? "" : t.replace(/<[^>]*>/g, " ").slice(0, 200), active: after.j?.user?.is_active ?? null });
-      if (after.j?.user?.is_active) break;
+      if ((after.j?.user?.is_active ?? null) === want) break;
     }
     return new Response(JSON.stringify({ tries }, null, 1), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
