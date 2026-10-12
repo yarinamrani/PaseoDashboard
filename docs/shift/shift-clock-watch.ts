@@ -618,22 +618,89 @@ async function handleCommands(dry: boolean) {
 const BOT_WA = "972559913581";
 const DM_KINDS = new Set(["no_exit", "exit_no_entry", "double"]);
 const DM_LATE_MIN = 120, DM_MAX_H = 16;
-async function dmOne(jar: Record<string, string>, ph: string, text: string, dry: boolean): Promise<{ msg: string; row: Row | null }> {
-  const { data: emps } = await sb.from("shift_employees").select("id, full_name, phone");
-  const mine = (emps ?? []).filter((e: any) => String(e.phone ?? "").replace(/\D/g, "").slice(-9) === ph);
+// כניסה מוקדמת (12/10): עובד שמגיע לטאלה לפני שפסאו (והשעון) נפתח שולח "IN" או שעה. בלי שעה — שעת קבלת ההודעה.
+// אם כבר יש לו תא היום בלי כניסה — מעדכנים מיד; אחרת נשמר ב-shift_clock_early ומוזן כשהחתמת היציאה יוצרת תא (processEarly).
+const IN_RE = /^\s*(in|נכנסתי|נכנסת|הגעתי|เข้างาน|เข้า|ถึงแล้ว)\s*[.!]*\s*$/i;
+const EARLY_BACK_H = 4, EARLY_AHEAD_MIN = 10;
+function ilClock(ms: number) {
+  const d = new Date(new Date(ms).toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
+  const p = (n: number) => String(n).padStart(2, "0");
+  return { date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, t: `${p(d.getHours())}:${p(d.getMinutes())}` };
+}
+async function earlyIn(jar: Record<string, string>, ids: Set<number>, who: string, text: string, given: string | null, recvMs: number, dry: boolean): Promise<{ msg: string; row: Row | null }> {
+  const quote = `"${text.slice(0, 100)}"`;
+  const none = { msg: `💬 *${who}* כתב/ה לבוט: ${quote} — אין לו/ה תקלת שעון פתוחה מה-${REPLY_MAX_H} ש' האחרונות. לא עדכנתי.`, row: null };
+  const asked = IN_RE.test(text) || RE_START.test(text);
+  if (RE_END.test(text)) return none;
+  const rc = ilClock(recvMs), t = given ?? rc.t, diff = mins(rc.t) - mins(t);
+  if (diff < -EARLY_AHEAD_MIN || diff > EARLY_BACK_H * 60)
+    return asked ? { msg: `⚠️ *${who}* שלח/ה לבוט כניסה ${t} בשעה ${rc.t} — רחוק מדי משעת השליחה. לא עדכנתי.`, row: null } : none;
+  const cands: any[] = [];
+  for (const app of Object.keys(APPS).map(Number))
+    for (const c of await appCells(jar, app)) if (String(c.date).slice(0, 10) === rc.date && !c.is_deleted && ids.has(Number(c.employee))) cands.push({ ...c, app });
+  const open = cands.filter((c) => !c.clock_start && !c.manual_start)
+    .sort((a, b) => dayKey(a.planned_start ?? a.clock_end ?? a.manual_end) - dayKey(b.planned_start ?? b.clock_end ?? b.manual_end))[0];
+  if (!open && cands.length) {
+    const c0 = cands[0];
+    return { msg: `ℹ️ *${who}* שלח/ה לבוט כניסה ${t} — כבר יש כניסה בשיפט היום (${hm(c0.manual_start ?? c0.clock_start)}). לא שיניתי.`, row: null };
+  }
+  const openEnd = open ? (open.manual_end ?? open.clock_end) : null;
+  if (open && openEnd && (!given || dayKey(t) > dayKey(openEnd) - 30))
+    return { msg: `⚠️ *${who}* שלח/ה לבוט ${given ? `כניסה ${t}` : "IN"} בשעה ${rc.t}, אבל כבר יש יציאה ב-${hm(openEnd)} — לא מסתדר ככניסה. לא עדכנתי.\n↩️ להשיב כאן עם שעת הכניסה הנכונה.`, row: { msg_id: "", line: 1, cell_id: open.id, app: open.app, kind: "exit_no_entry", partner_id: null, name: `${open.first_name ?? ""} ${open.last_name ?? ""}`.trim() || who, date: rc.date } };
+  if (open) {
+    const name = `${open.first_name ?? ""} ${open.last_name ?? ""}`.trim() || who;
+    const row: Row = { msg_id: "", line: 1, cell_id: open.id, app: open.app, kind: "manual", partner_id: null, name, date: rc.date };
+    if (dry) return { msg: `(dry) early ${name} ${ddmm(rc.date)} כניסה ${t} → cell ${open.id}`, row };
+    const res = await applySeg(jar, { row, times: [t], kw: "start" });
+    return { msg: `📲 *${name}* – כניסה ${t} (נשלח לבוט ב-${rc.t})\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`, row };
+  }
+  if (dry) return { msg: `(dry) early ${who} ${ddmm(rc.date)} כניסה ${t} → pending`, row: null };
+  const { data: dup } = await sb.from("shift_clock_early").select("id").eq("status", "pending").eq("date", rc.date).overlaps("emp_ids", [...ids]).limit(1);
+  if (!dup?.length) await sb.from("shift_clock_early").insert({ emp_ids: [...ids], name: who, date: rc.date, t, recv_t: rc.t, src: text.slice(0, 200) });
+  return { msg: "", row: null }; // נשמר בשקט — ההודעה לקבוצה יוצאת כשהכניסה מוזנת בפועל
+}
+async function processEarly(jar: Record<string, string>, cells: Cell[], dates: string[]) {
+  const { data: pend } = await sb.from("shift_clock_early").select("*").eq("status", "pending");
+  if (!pend?.length) return;
+  const target = await cfg("SHIFT_CLOCK_WA_TARGET");
+  for (const p of pend) {
+    const ids = new Set((p.emp_ids ?? []).map(Number));
+    const c = cells.filter((x) => x.date === p.date && ids.has(x.emp) && !x.cs && !x.ms).sort((a, b) => dayKey(startOf(a)) - dayKey(startOf(b)))[0];
+    if (!c) {
+      if (String(p.date) < dates[0]) {
+        await sb.from("shift_clock_early").update({ status: "expired", done_at: new Date().toISOString() }).eq("id", p.id);
+        if (target) await send(target, `⚠️ *${p.name}* שלח/ה לבוט כניסה ${p.t} ב-${ddmm(String(p.date))}, אבל לא נוצרה משמרת בשיפט באותו יום — לעדכן ידנית.`);
+      }
+      continue;
+    }
+    const row: Row = { msg_id: "", line: 1, cell_id: c.id, app: c.app, kind: "manual", partner_id: null, name: c.name, date: c.date };
+    const res = await applySeg(jar, { row, times: [p.t], kw: "start" });
+    const ok = res.startsWith("✅");
+    if (ok) c.ms = `${p.t}:00`; // שהבדיקה באותה ריצה לא תתריע "יציאה בלי כניסה"
+    await sb.from("shift_clock_early").update({ status: ok ? "done" : "failed", cell_id: c.id, app: c.app, result: res, done_at: new Date().toISOString() }).eq("id", p.id);
+    const id = target ? await send(target, `📲 *${c.name}* – כניסה מוקדמת שנשלחה לבוט ב-${p.recv_t}\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`) : null;
+    if (id) await sb.from("shift_clock_msgs").insert([{ ...row, msg_id: id }]);
+  }
+}
+async function dmOne(jar: Record<string, string>, ph: string, text: string, dry: boolean, recvMs = Date.now()): Promise<{ msg: string; row: Row | null }> {
+  const { data: emps } = await sb.from("shift_employees").select("id, full_name, phone, application");
+  const mine = (emps ?? []).filter((e: any) => String(e.phone ?? "").replace(/\D/g, "").slice(-9) === ph)
+    .sort((a: any, b: any) => Number(!APPS[a.application]) - Number(!APPS[b.application])); // שם מפסאו קודם (אותו נייד יכול להופיע גם בטאלה/אומינו)
   const ids = new Set(mine.map((e: any) => Number(e.id)));
   const who = String(mine[0]?.full_name ?? `…${ph.slice(-4)}`).trim();
   const quote = `"${text.slice(0, 100)}"`;
   const times = [...text.matchAll(TIME_RE)].map((m) => `${m[1].padStart(2, "0")}:${m[2]}`);
-  if (!ids.size || !times.length) return { msg: `💬 *${who}* כתב/ה לבוט: ${quote} — לא מצאתי שעה. לא עדכנתי.`, row: null };
+  const isIn = IN_RE.test(text);
+  if (!ids.size || (!times.length && !isIn)) return { msg: `💬 *${who}* כתב/ה לבוט: ${quote} — לא מצאתי שעה. לא עדכנתי.`, row: null };
   const { data: al } = await sb.from("shift_clock_msgs").select("cell_id, app, kind, partner_id, name, date, created_at")
     .gte("created_at", new Date(Date.now() - REPLY_MAX_H * 36e5).toISOString()).order("created_at", { ascending: false });
   const seen = new Set<number>();
-  for (const a of (al ?? []) as any[]) {
+  for (const a of (isIn ? [] : al ?? []) as any[]) {
     if (!DM_KINDS.has(a.kind) || seen.has(a.cell_id)) continue;
     seen.add(a.cell_id);
     const cell = (await appCells(jar, a.app)).find((c: any) => c.id === a.cell_id);
     if (!cell || cell.is_deleted || !ids.has(Number(cell.employee))) continue;
+    if (cell.manual_start || cell.manual_end) continue; // התקלה כבר תוקנה — לא לדרוס
     const kw: "start" | "end" = RE_START.test(text) ? "start" : RE_END.test(text) ? "end" : a.kind === "exit_no_entry" ? "start" : "end";
     const t = times[0], label = kw === "end" ? "יציאה" : "כניסה";
     const row: Row = { msg_id: "", line: 1, cell_id: a.cell_id, app: a.app, kind: a.kind, partner_id: a.partner_id, name: a.name, date: a.date };
@@ -650,11 +717,11 @@ async function dmOne(jar: Record<string, string>, ph: string, text: string, dry:
     const res = await applySeg(jar, { row, times: [t], kw });
     return { msg: `📲 *${a.name}* שלח/ה ${label} ${t}\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`, row };
   }
-  return { msg: `💬 *${who}* כתב/ה לבוט: ${quote} — אין לו/ה תקלת שעון פתוחה מה-${REPLY_MAX_H} ש' האחרונות. לא עדכנתי.`, row: null };
+  return await earlyIn(jar, ids, who, text, times[0] ?? null, recvMs, dry);
 }
 async function handleDms(dry: boolean) {
   const target = await cfg("SHIFT_CLOCK_WA_TARGET");
-  const { data: rows } = await sb.from("wa_inbox").select("id, chat_id, body").eq("status", "clock_dm").order("created_at").limit(5);
+  const { data: rows } = await sb.from("wa_inbox").select("id, chat_id, body, created_at").eq("status", "clock_dm").order("created_at").limit(5);
   if (!rows?.length) return [];
   cellsCache = {};
   const out: any[] = [];
@@ -670,11 +737,11 @@ async function handleDms(dry: boolean) {
     let res: { msg: string; row: Row | null };
     try {
       if (!jar) { jar = {}; if (!(await login(jar))) throw new Error("login failed"); }
-      res = await dmOne(jar, ph, text, dry);
+      res = await dmOne(jar, ph, text, dry, Date.parse(r.created_at) || Date.now());
     } catch (e) { jar = null; res = { msg: `❌ תקלה בעדכון מהודעה לבוט (…${ph.slice(-4)}): ${String(e).slice(0, 100)}. לא בטוח שנכנס – לבדוק בשיפט.`, row: null }; }
     out.push({ ph: ph.slice(-4), text, msg: res.msg });
     if (dry) continue;
-    const id = target ? await send(target, res.msg) : null;
+    const id = target && res.msg ? await send(target, res.msg) : null;
     if (id && res.row) await sb.from("shift_clock_msgs").insert([{ ...res.row, msg_id: id }]);
     await sb.from("wa_inbox").update({ status: "done", updated_at: new Date().toISOString() }).eq("id", r.id);
   }
@@ -695,6 +762,12 @@ Deno.serve(async (req) => {
       const jar: Record<string, string> = {}; await login(jar); cellsCache = {}; aliasCache = null;
       const text = u.searchParams.get("text") ?? "";
       return json({ text, reply: await dispatch(jar, text, dry) });
+    }
+    if (u.searchParams.get("mode") === "dmtest") { // בדיקה ידנית של הודעה פרטית — תמיד dry
+      const jar: Record<string, string> = {}; await login(jar); cellsCache = {};
+      const ph = (u.searchParams.get("ph") ?? "").replace(/\D/g, "").slice(-9), text = u.searchParams.get("text") ?? "";
+      const at0 = u.searchParams.get("at");
+      return json({ text, res: await dmOne(jar, ph, text, true, at0 ? Date.parse(at0) : Date.now()) });
     }
     const mode = u.searchParams.get("mode") === "digest" ? "digest" : "live";
     const now = ilNow(), today = ymd(now);
@@ -722,6 +795,7 @@ Deno.serve(async (req) => {
     const groups = new Map<string, Cell[]>();
     for (const c of cells) { const k = `${c.app}|${c.date}|${c.emp}`; groups.set(k, [...(groups.get(k) ?? []), c]); }
     for (const g of groups.values()) g.sort((a, b) => dayKey(startOf(a)) - dayKey(startOf(b)));
+    if (mode === "live" && !dry) await processEarly(jar, cells, dates).catch(() => {});
 
     let hits = cells.flatMap((c) => check(c, groups.get(`${c.app}|${c.date}|${c.emp}`)!, now, mode));
     if (mode === "live" && hits.length) {

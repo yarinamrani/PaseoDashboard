@@ -10,7 +10,8 @@ begin
     tm := new.body->'messageData'->>'typeMessage';
     if tm in ('textMessage', 'extendedTextMessage') then
       t := coalesce(new.body->'messageData'->'textMessageData'->>'textMessage', new.body->'messageData'->'extendedTextMessageData'->>'text', '');
-      if t ~ '(^|[^0-9])([01]?[0-9]|2[0-3])[:.][0-5][0-9]' and exists (
+      -- 12/10: גם "IN" / נכנסתי / เข้างาน בלי שעה — כניסה מוקדמת (לפני שהשעון בפסאו זמין)
+      if (t ~ '(^|[^0-9])([01]?[0-9]|2[0-3])[:.][0-5][0-9]' or t ~* '^\s*(in|נכנסתי|נכנסת|הגעתי|เข้างาน|เข้า|ถึงแล้ว)\s*[.!]*\s*$') and exists (
            select 1 from shift_employees e where e.is_active
              and right(regexp_replace(coalesce(e.phone, ''), '\D', '', 'g'), 9) = right(regexp_replace(new.chat_id, '\D', '', 'g'), 9)) then
         new.status := 'clock_dm';
