@@ -621,7 +621,7 @@ const DM_LATE_MIN = 120, DM_MAX_H = 16;
 // כניסה מוקדמת (12/10): עובד שמגיע לטאלה לפני שפסאו (והשעון) נפתח שולח "IN" או שעה. בלי שעה — שעת קבלת ההודעה.
 // אם כבר יש לו תא היום בלי כניסה — מעדכנים מיד; אחרת נשמר ב-shift_clock_early ומוזן כשהחתמת היציאה יוצרת תא (processEarly).
 const IN_RE = /^\s*(in|נכנסתי|נכנסת|הגעתי|เข้างาน|เข้า|ถึงแล้ว)\s*[.!]*\s*$/i;
-const EARLY_BACK_H = 12, EARLY_AHEAD_MIN = 10;
+const EARLY_BACK_H = 12, EARLY_AHEAD_MIN = 10, EARLY_FROM_H = 6, EARLY_TO_H = 10;
 function ilClock(ms: number) {
   const d = new Date(new Date(ms).toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
   const p = (n: number) => String(n).padStart(2, "0");
@@ -655,9 +655,15 @@ async function earlyIn(jar: Record<string, string>, ids: Set<number>, who: strin
     return { msg: `📲 *${name}* – כניסה ${t} (נשלח לבוט ב-${rc.t})\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`, row };
   }
   if (dry) return { msg: `(dry) early ${who} ${ddmm(rc.date)} כניסה ${t} → pending`, row: null };
-  const { data: dup } = await sb.from("shift_clock_early").select("id").eq("status", "pending").eq("date", rc.date).overlaps("emp_ids", [...ids]).limit(1);
-  if (!dup?.length) await sb.from("shift_clock_early").insert({ emp_ids: [...ids], name: who, date: rc.date, t, recv_t: rc.t, src: text.slice(0, 200) });
-  return { msg: "", row: null }; // נשמר בשקט — ההודעה לקבוצה יוצאת כשהכניסה מוזנת בפועל
+  const { data: dup } = await sb.from("shift_clock_early").select("id, t").eq("status", "pending").eq("date", rc.date).overlaps("emp_ids", [...ids]).limit(1);
+  const odd = mins(t) < EARLY_FROM_H * 60 || mins(t) > EARLY_TO_H * 60 ? `\n⚠️ שעה חריגה לכניסה (בד"כ ${EARLY_FROM_H}:00–${EARLY_TO_H}:00) — לבדוק` : "";
+  if (dup?.length) {
+    if (dup[0].t === t) return { msg: "", row: null }; // אותה שעה שוב — בלי הודעה כפולה
+    await sb.from("shift_clock_early").update({ t, recv_t: rc.t, src: text.slice(0, 200) }).eq("id", dup[0].id);
+    return { msg: `🕗 *${who}* – תיקן/ה כניסה ל-${t} (היה ${dup[0].t}, נשלח ב-${rc.t})${odd}`, row: null };
+  }
+  await sb.from("shift_clock_early").insert({ emp_ids: [...ids], name: who, date: rc.date, t, recv_t: rc.t, src: text.slice(0, 200) });
+  return { msg: `🕗 *${who}* – כניסה ${t} (נשלח לבוט ב-${rc.t})\nאין עדיין משמרת בשיפט — יוזן אוטומטית אחרי החתמת היציאה.${odd}`, row: null };
 }
 async function processEarly(jar: Record<string, string>, cells: Cell[], dates: string[]) {
   const { data: pend } = await sb.from("shift_clock_early").select("*").eq("status", "pending");
