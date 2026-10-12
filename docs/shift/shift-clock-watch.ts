@@ -90,6 +90,17 @@ const ddmm = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
 // שעה מאוחרת מההתחלה = אותו יום; מוקדמת = אחרי חצות
 const endAt = (date: string, start: string, end: string) => { const s = at(date, start); let e = at(date, end); if (e < s) e += 864e5; return e; };
 const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
+// "2026-10-11" + "23:26" → "2026-10-11T23:26:00+03:00" (אזור זמן ישראל לפי התאריך; סיום לפני ההתחלה = אחרי חצות)
+function ilOffset(date: string): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  const h = Math.round((Date.parse(d.toLocaleString("en-US", { timeZone: "Asia/Jerusalem" })) - Date.parse(d.toLocaleString("en-US", { timeZone: "UTC" }))) / 36e5);
+  return `+${String(h).padStart(2, "0")}:00`;
+}
+function fullOf(date: string, t: string, after?: string | null): string {
+  let d = date;
+  if (after && mins(t) < mins(after)) d = ymd(Date.parse(`${date}T00:00:00Z`) + 864e5);
+  return `${d}T${t.slice(0, 5)}:00${ilOffset(d)}`;
+}
 // סדר בתוך יום עבודה: שעות לפני 06:00 שייכות לסוף הלילה
 const dayKey = (t: string | null) => t ? mins(t) + (mins(t) < 360 ? 1440 : 0) : 9999;
 
@@ -229,8 +240,14 @@ async function applySeg(jar: Record<string, string>, s: Seg): Promise<string> {
     return r.ok ? await r.json() : null;
   };
   const patch = async (cell: any, set: Record<string, string>) => {
+    // כמו המסך של שיפט: לכל manual_start/manual_end גם *_full (תאריך+שעה+אזור זמן) — הדוח המפורט והמשכורת קוראים את ה-_full
+    const full: Record<string, string> = {};
+    const d0 = String(cell.date).slice(0, 10);
+    const st = set.manual_start ?? cell.manual_start ?? cell.clock_start ?? cell.planned_start ?? null;
+    if (set.manual_start) full.manual_start_full = fullOf(d0, set.manual_start);
+    if (set.manual_end) full.manual_end_full = fullOf(d0, set.manual_end, st);
     const r = await fetch(`${BASE}/api/cells/${cell.id}/?application=${row.app}`, { method: "PATCH", headers: hdrs(jar, true),
-      body: JSON.stringify({ ...set, version: cell.version }) });
+      body: JSON.stringify({ ...set, ...full, version: cell.version }) });
     return r.ok ? null : `${r.status} ${(await r.text().catch(() => "")).slice(0, 120)}`;
   };
   const was = (cur: string | null, t: string) => cur && hm(cur) !== t ? ` (היה ${hm(cur)})` : "";
