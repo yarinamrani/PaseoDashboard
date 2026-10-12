@@ -5,6 +5,8 @@
 //       • כניסה ויציאה תוך פחות מ-10 דק' (כנראה יציאה בטעות)
 //       • יציאה בלי כניסה
 //       • כניסה בלי יציאה — שעה אחרי הסוף המתוכנן, או 12 ש' אחרי הכניסה כשאין סוף מתוכנן
+//   הודעה אישית לעובד — app_config.SHIFT_CLOCK_DM_MODE: off (רגיל) / shadow (מ-12/10: כל תקלה חיה נשלחת לירין כטיוטה
+//     של ההודעה לעובד, ותשובה עליה מעדכנת את שיפט) / on (עוד לא ממומש: שליחה לנייד העובד + קליטת תשובות מצ'אט פרטי).
 //   ?mode=digest (פעם ביום בבוקר) — סיכום של אתמול: כל מה שעדיין לא תוקן + משמרת מעל 14 ש' + משובץ בלי שום החתמה
 //       + בדיקת טיפים בפלור: לכל משמרת (בוקר/ערב) שהחתימו בה 2+ עובדי טיפ — יש חישוב טיפים? יש בו גביית אוכל?
 //   ?mode=replies (כל דקה) — קורא תגובות (reply) של ירין על הודעות ההתראה ומזין את השעה בשיפט (manual_start/manual_end)
@@ -646,6 +648,31 @@ Deno.serve(async (req) => {
       for (const p of pend ?? []) tips.push(`🍽 אוכל עובדים ${p.tip === TIP_AM ? "בוקר" : "ערב"} ${ddmm(String(p.date))} עדיין מחכה – אין חישוב טיפים (${(p.entries ?? []).length} עובדים)`);
     }
     if (!hits.length && !tips.length) return json({ mode, dry, cells: cells.length, alerts: 0 });
+
+    // הודעה אישית לעובד (app_config.SHIFT_CLOCK_DM_MODE): off = כמו קודם, הודעה מרוכזת לירין;
+    // shadow = כל תקלה נשלחת לירין כטיוטה של ההודעה שהייתה יוצאת לעובד, ואפשר להשיב עליה עם השעה כמו העובד.
+    // (on — שליחה לעובד עצמו — עוד לא ממומש: צריך קליטת תשובות מצ'אט פרטי.)
+    const dmMode = mode === "live" ? (await cfg("SHIFT_CLOCK_DM_MODE")) || "off" : "off";
+    if (dmMode === "shadow" && hits.length && !dry) {
+      const target = await cfg("SHIFT_CLOCK_WA_TARGET");
+      const { data: emps } = await sb.from("shift_employees").select("id, phone").in("id", hits.map((h) => h.cell.emp));
+      const phoneOf = new Map<number, string>((emps ?? []).map((e: any) => [Number(e.id), String(e.phone ?? "").replace(/\D/g, "")]));
+      let n = 0;
+      for (const h of hits) {
+        const c = h.cell, first = c.name.split(/\s+/)[0], day = `${DAYS_HE[new Date(c.date).getUTCDay()]} ${ddmm(c.date)}`;
+        const dm = h.kind === "no_exit" ? `היי ${first} 👋\nלא החתמת יציאה במשמרת של ${day} (נכנסת ב-${hm(c.cs ?? "")}).\nמתי יצאת? תענה רק עם השעה, למשל 23:40`
+          : h.kind === "exit_no_entry" ? `היי ${first} 👋\nלא החתמת כניסה במשמרת של ${day} (יציאה ב-${hm(c.ce ?? "")}).\nמתי נכנסת? תענה רק עם השעה, למשל 17:00`
+          : `היי ${first} 👋\nבמשמרת של ${day} נרשמו כניסה ויציאה באותה דקה (${hm(c.cs ?? "")}).\nמתי יצאת בפועל? תענה רק עם השעה, למשל 23:40`;
+        const ph = phoneOf.get(c.emp) ?? "";
+        const to = ph.length >= 9 ? `נייד ‎…${ph.slice(-4)}` : "⚠️ אין נייד בשיפט";
+        const id = target ? await send(target, `🧪 *טיוטה — הודעה שהייתה נשלחת לעובד* (${c.name}, ${APPS[c.app]}, ${to})\n\n${dm}\n\n↩️ להשיב כאן עם השעה כאילו אתה העובד — אעדכן בשיפט.`) : null;
+        if (id === null) continue;
+        n++;
+        await sb.from("shift_clock_alerts").upsert([{ cell_id: c.id, kind: h.kind }], { onConflict: "cell_id,kind", ignoreDuplicates: true });
+        if (id) await sb.from("shift_clock_msgs").insert([{ msg_id: id, line: 1, cell_id: c.id, app: c.app, kind: h.kind, partner_id: h.partner?.id ?? null, name: c.name, date: c.date }]);
+      }
+      return json({ mode, dmMode, cells: cells.length, alerts: hits.length, sent: n });
+    }
 
     const many = hits.length > 1;
     const body = hits.map((h, i) => `${many ? `${i + 1}. ` : ""}${h.line}`).join("\n");
