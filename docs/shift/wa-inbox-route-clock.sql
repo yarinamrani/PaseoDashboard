@@ -5,6 +5,22 @@ create or replace function wa_inbox_route_clock() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare t text; tgt text; tm text; hit boolean := false;
 begin
+  -- 12/10: עובד ששולח לבוט בצ'אט פרטי הודעה עם שעה (תשובה ל"לא החתמת יציאה") — רק אם הנייד שייך לעובד פעיל בשיפט
+  if new.chat_id like '%@c.us' then
+    tm := new.body->'messageData'->>'typeMessage';
+    if tm in ('textMessage', 'extendedTextMessage') then
+      t := coalesce(new.body->'messageData'->'textMessageData'->>'textMessage', new.body->'messageData'->'extendedTextMessageData'->>'text', '');
+      if t ~ '(^|[^0-9])([01]?[0-9]|2[0-3])[:.][0-5][0-9]' and exists (
+           select 1 from shift_employees e where e.is_active
+             and right(regexp_replace(coalesce(e.phone, ''), '\D', '', 'g'), 9) = right(regexp_replace(new.chat_id, '\D', '', 'g'), 9)) then
+        new.status := 'clock_dm';
+        perform net.http_get(url := 'https://vzeowbriddhvhpishmhn.supabase.co/functions/v1/contest-watch',
+          params := jsonb_build_object('mode', 'replies', 'secret', (select value from app_config where key = 'ALFRED_SYNC_SECRET')),
+          timeout_milliseconds := 60000);
+      end if;
+    end if;
+    return new;
+  end if;
   select value into tgt from app_config where key = 'SHIFT_CLOCK_WA_TARGET';
   if tgt is null or new.chat_id is distinct from tgt then return new; end if;
   tm := new.body->'messageData'->>'typeMessage';

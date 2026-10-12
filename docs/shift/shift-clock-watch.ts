@@ -5,8 +5,10 @@
 //       • כניסה ויציאה תוך פחות מ-10 דק' (כנראה יציאה בטעות)
 //       • יציאה בלי כניסה
 //       • כניסה בלי יציאה — שעה אחרי הסוף המתוכנן, או 12 ש' אחרי הכניסה כשאין סוף מתוכנן
-//   הודעה אישית לעובד — app_config.SHIFT_CLOCK_DM_MODE: off (רגיל) / shadow (מ-12/10: כל תקלה חיה נשלחת לירין כטיוטה
-//     של ההודעה לעובד, ותשובה עליה מעדכנת את שיפט) / on (עוד לא ממומש: שליחה לנייד העובד + קליטת תשובות מצ'אט פרטי).
+//   הודעה אישית לעובד — app_config.SHIFT_CLOCK_DM_MODE: off (רגיל, רשימה מרוכזת) / shadow (מ-12/10): לכל תקלה חיה נשלחות
+//     לירין שתי הודעות — "📤 להעביר ל-X" ומתחתיה הודעה נקייה לעובד עם קישור wa.me לבוט. ירין מעביר אותה לעובד;
+//     העובד שולח לבוט רק שעה, והבוט מזהה אותו לפי הנייד ומעדכן (handleDms). אפשר גם להשיב על ההודעה בעצמך עם השעה.
+//     הבוט לא שולח לעובד כלום (Green API בתוכנית החינמית מוגבל במספר הצ'אטים היוצאים).
 //   ?mode=digest (פעם ביום בבוקר) — סיכום של אתמול: כל מה שעדיין לא תוקן + משמרת מעל 14 ש' + משובץ בלי שום החתמה
 //       + בדיקת טיפים בפלור: לכל משמרת (בוקר/ערב) שהחתימו בה 2+ עובדי טיפ — יש חישוב טיפים? יש בו גביית אוכל?
 //   ?mode=replies (כל דקה) — קורא תגובות (reply) של ירין על הודעות ההתראה ומזין את השעה בשיפט (manual_start/manual_end)
@@ -593,6 +595,75 @@ async function handleCommands(dry: boolean) {
   return out;
 }
 
+// ---------- עובד ששולח שעה לבוט בצ'אט פרטי (טריגר wa_inbox_route_clock מסמן status='clock_dm') ----------
+// מזהים את העובד לפי הנייד (9 ספרות אחרונות מול shift_employees.phone), לוקחים את התקלה הפתוחה האחרונה שלו
+// מ-48 השעות האחרונות ומעדכנים. שעה לא סבירה לא מוזנת — עוברת לירין. לעובד לא עונים (תוכנית Green API חינמית).
+const BOT_WA = "972559913581";
+const DM_KINDS = new Set(["no_exit", "exit_no_entry", "double"]);
+const DM_LATE_MIN = 120, DM_MAX_H = 16;
+async function dmOne(jar: Record<string, string>, ph: string, text: string, dry: boolean): Promise<{ msg: string; row: Row | null }> {
+  const { data: emps } = await sb.from("shift_employees").select("id, full_name, phone");
+  const mine = (emps ?? []).filter((e: any) => String(e.phone ?? "").replace(/\D/g, "").slice(-9) === ph);
+  const ids = new Set(mine.map((e: any) => Number(e.id)));
+  const who = String(mine[0]?.full_name ?? `…${ph.slice(-4)}`).trim();
+  const quote = `"${text.slice(0, 100)}"`;
+  const times = [...text.matchAll(TIME_RE)].map((m) => `${m[1].padStart(2, "0")}:${m[2]}`);
+  if (!ids.size || !times.length) return { msg: `💬 *${who}* כתב/ה לבוט: ${quote} — לא מצאתי שעה. לא עדכנתי.`, row: null };
+  const { data: al } = await sb.from("shift_clock_msgs").select("cell_id, app, kind, partner_id, name, date, created_at")
+    .gte("created_at", new Date(Date.now() - REPLY_MAX_H * 36e5).toISOString()).order("created_at", { ascending: false });
+  const seen = new Set<number>();
+  for (const a of (al ?? []) as any[]) {
+    if (!DM_KINDS.has(a.kind) || seen.has(a.cell_id)) continue;
+    seen.add(a.cell_id);
+    const cell = (await appCells(jar, a.app)).find((c: any) => c.id === a.cell_id);
+    if (!cell || cell.is_deleted || !ids.has(Number(cell.employee))) continue;
+    const kw: "start" | "end" = RE_START.test(text) ? "start" : RE_END.test(text) ? "end" : a.kind === "exit_no_entry" ? "start" : "end";
+    const t = times[0], label = kw === "end" ? "יציאה" : "כניסה";
+    const row: Row = { msg_id: "", line: 1, cell_id: a.cell_id, app: a.app, kind: a.kind, partner_id: a.partner_id, name: a.name, date: a.date };
+    const ps = cell.planned_start, pe = cell.planned_end;
+    const cs = cell.manual_start || cell.clock_start, ce = cell.manual_end || cell.clock_end;
+    let warn = "";
+    if (kw === "end" && (cs || ps)) {
+      const st = at(a.date, cs ?? ps), en = endAt(a.date, cs ?? ps, t);
+      if ((en - st) / 36e5 > DM_MAX_H) warn = `יוצא משמרת של ${((en - st) / 36e5).toFixed(1)} ש'`;
+      else if (ps && pe && en - endAt(a.date, ps, pe) > DM_LATE_MIN * 6e4) warn = `${((en - endAt(a.date, ps, pe)) / 36e5).toFixed(1)} ש' אחרי סוף המשמרת המתוכנן (${hm(pe)})`;
+    } else if (kw === "start" && ce && (endAt(a.date, t, ce) - at(a.date, t)) / 36e5 > DM_MAX_H) warn = `יוצא משמרת של יותר מ-${DM_MAX_H} ש'`;
+    if (warn) return { msg: `⚠️ *${a.name}* שלח/ה ${label} ${t} (${ddmm(a.date)}) — ${warn}. לא עדכנתי.\n↩️ להשיב כאן עם השעה הנכונה ואעדכן.`, row };
+    if (dry) return { msg: `(dry) ${a.name} ${ddmm(a.date)} ${label} ${t}`, row };
+    const res = await applySeg(jar, { row, times: [t], kw });
+    return { msg: `📲 *${a.name}* שלח/ה ${label} ${t}\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`, row };
+  }
+  return { msg: `💬 *${who}* כתב/ה לבוט: ${quote} — אין לו/ה תקלת שעון פתוחה מה-${REPLY_MAX_H} ש' האחרונות. לא עדכנתי.`, row: null };
+}
+async function handleDms(dry: boolean) {
+  const target = await cfg("SHIFT_CLOCK_WA_TARGET");
+  const { data: rows } = await sb.from("wa_inbox").select("id, chat_id, body").eq("status", "clock_dm").order("created_at").limit(5);
+  if (!rows?.length) return [];
+  cellsCache = {};
+  const out: any[] = [];
+  let jar: Record<string, string> | null = null;
+  for (const r of rows) {
+    if (!dry) {
+      const { data: got } = await sb.from("wa_inbox").update({ status: "clock_processing", updated_at: new Date().toISOString() }).eq("id", r.id).eq("status", "clock_dm").select("id");
+      if (!got?.length) continue;
+    }
+    const md = r.body?.messageData ?? {};
+    const text = String(md.textMessageData?.textMessage ?? md.extendedTextMessageData?.text ?? "").trim();
+    const ph = String(r.chat_id ?? "").replace(/\D/g, "").slice(-9);
+    let res: { msg: string; row: Row | null };
+    try {
+      if (!jar) { jar = {}; if (!(await login(jar))) throw new Error("login failed"); }
+      res = await dmOne(jar, ph, text, dry);
+    } catch (e) { jar = null; res = { msg: `❌ תקלה בעדכון מהודעה לבוט (…${ph.slice(-4)}): ${String(e).slice(0, 100)}. לא בטוח שנכנס – לבדוק בשיפט.`, row: null }; }
+    out.push({ ph: ph.slice(-4), text, msg: res.msg });
+    if (dry) continue;
+    const id = target ? await send(target, res.msg) : null;
+    if (id && res.row) await sb.from("shift_clock_msgs").insert([{ ...res.row, msg_id: id }]);
+    await sb.from("wa_inbox").update({ status: "done", updated_at: new Date().toISOString() }).eq("id", r.id);
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   try {
     const u = new URL(req.url);
@@ -601,7 +672,7 @@ Deno.serve(async (req) => {
     const dry = u.searchParams.get("dry") === "1";
     if (u.searchParams.get("mode") === "replies") {
       const rep = await handleReplies(dry);
-      return json({ mode: "replies", dry, ...rep, commands: await handleCommands(dry) });
+      return json({ mode: "replies", dry, ...rep, commands: await handleCommands(dry), dms: await handleDms(dry) });
     }
     if (u.searchParams.get("mode") === "cmd") { // בדיקה ידנית
       const jar: Record<string, string> = {}; await login(jar); cellsCache = {}; aliasCache = null;
@@ -660,12 +731,15 @@ Deno.serve(async (req) => {
       let n = 0;
       for (const h of hits) {
         const c = h.cell, first = c.name.split(/\s+/)[0], day = `${DAYS_HE[new Date(c.date).getUTCDay()]} ${ddmm(c.date)}`;
-        const dm = h.kind === "no_exit" ? `היי ${first} 👋\nלא החתמת יציאה במשמרת של ${day} (נכנסת ב-${hm(c.cs ?? "")}).\nמתי יצאת? תענה רק עם השעה, למשל 23:40`
-          : h.kind === "exit_no_entry" ? `היי ${first} 👋\nלא החתמת כניסה במשמרת של ${day} (יציאה ב-${hm(c.ce ?? "")}).\nמתי נכנסת? תענה רק עם השעה, למשל 17:00`
-          : `היי ${first} 👋\nבמשמרת של ${day} נרשמו כניסה ויציאה באותה דקה (${hm(c.cs ?? "")}).\nמתי יצאת בפועל? תענה רק עם השעה, למשל 23:40`;
+        const ask = h.kind === "exit_no_entry" ? `לא החתמת כניסה במשמרת של ${day} (יציאה ב-${hm(c.ce ?? "")}).\nמתי נכנסת?`
+          : h.kind === "no_exit" ? `לא החתמת יציאה במשמרת של ${day} (נכנסת ב-${hm(c.cs ?? "")}).\nמתי יצאת?`
+          : `במשמרת של ${day} נרשמו כניסה ויציאה באותה דקה (${hm(c.cs ?? "")}).\nמתי יצאת בפועל?`;
+        const dm = `היי ${first} 👋\n${ask}\nשלח/י רק את השעה (למשל ${h.kind === "exit_no_entry" ? "17:00" : "23:40"}) לוואטסאפ של פסאו:\n👉 wa.me/${BOT_WA}`;
         const ph = phoneOf.get(c.emp) ?? "";
         const to = ph.length >= 9 ? `נייד ‎…${ph.slice(-4)}` : "⚠️ אין נייד בשיפט";
-        const id = target ? await send(target, `🧪 *טיוטה — הודעה שהייתה נשלחת לעובד* (${c.name}, ${APPS[c.app]}, ${to})\n\n${dm}\n\n↩️ להשיב כאן עם השעה כאילו אתה העובד — אעדכן בשיפט.`) : null;
+        // שתי הודעות: כותרת קצרה, ואחריה ההודעה הנקייה להעברה לעובד (עליה אפשר גם להשיב עם השעה)
+        if (target) await send(target, `📤 להעביר ל*${c.name}* (${APPS[c.app]}, ${to}) ⬇️`);
+        const id = target ? await send(target, dm) : null;
         if (id === null) continue;
         n++;
         await sb.from("shift_clock_alerts").upsert([{ cell_id: c.id, kind: h.kind }], { onConflict: "cell_id,kind", ignoreDuplicates: true });
