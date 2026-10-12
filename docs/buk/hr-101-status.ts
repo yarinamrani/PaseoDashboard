@@ -2,7 +2,7 @@
 // פרוס בסלוט של ontopo-feedback-list (דוח טלגרם כבוי; גיבוי ב-docs/ontopo/). שולח דרך Green API (Whapi בניסיון שמוצה).
 // מקור האמת: getAllEmployeesForms101 של buk — כל טופס שנשלח, גם אם נשלח ידנית מ-buk ולא דרך הבוט.
 //   ?mode=live   (כל שעה) — "✅ מילא/ה 101" לכל טופס שעבר לנחתם/הושלם/אומת מאז הריצה הקודמת. ריצה ראשונה = רישום שקט.
-//   ?mode=digest (כל בוקר) — שליחות שנכשלו ב-buk + מי עוד לא מילא (נשלח/נפתח, נשלח ב-90 הימים האחרונים) + מי מילא ב-7 הימים האחרונים
+//   ?mode=digest (כל בוקר, מקובץ לפי מסעדה: פסאו → אומינו → טאלה) — שליחות שנכשלו ב-buk + מי עוד לא מילא (נשלח/נפתח, נשלח ב-90 הימים האחרונים) + מי מילא ב-7 הימים האחרונים
 //                + "עבדו בלי 101": מי שהחתים בשיפט ב-30 הימים האחרונים ואין לו 101 ממולא באותה חברה.
 //     כל יום — רק עובדים חדשים (משמרת ראשונה אי פעם ב-21 הימים האחרונים, hr_first_shift). ביום ראשון (או ?full=1) — כל הרשימה.
 //     החברה נקבעת לפי התא בשיפט: אפליקציות אומינו (5930/5931) → אומינו; תפקידי טאלה בפלור → טאלה; שאר הפלור → פסאו;
@@ -17,6 +17,8 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const COMPANIES: Record<string, string> = { VRP5IK2cpacu2ZmPMcjt: "פסאו", VZgAaVfmSuJlrb3xOSv2: "טאלה", uVHjtoB6rsenMFgPCyoe: "אומינו" };
+const PASEO = "VRP5IK2cpacu2ZmPMcjt";
+const VENUE_ORDER = [PASEO, "uVHjtoB6rsenMFgPCyoe", "VZgAaVfmSuJlrb3xOSv2"]; // פסאו → אומינו → טאלה
 const ORDER = ["sent", "opened", "signed", "done", "verified"];
 const HE: Record<string, string> = { sent: "נשלח", opened: "נפתח", signed: "נחתם", done: "הושלם", verified: "אומת" };
 const FILLED = new Set(["signed", "done", "verified"]);
@@ -125,7 +127,8 @@ Deno.serve(async (req) => {
       const ilDow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jerusalem" })).getDay();
       const full = u.searchParams.get("full") === "1" || ilDow === 0;
       const newSince = new Date(now - NEW_DAYS * 864e5).toISOString().slice(0, 10);
-      const noForm: string[] = [], inNoForm = new Set<string>();
+      // כל שורה משויכת למסעדה; ההודעה נבנית מסעדה-מסעדה (פסאו → אומינו → טאלה), ובתוך כל אחת לפי סוג
+      const noForm: { co: string; line: string }[] = [], inNoForm = new Set<string>();
       for (const w of ((worked ?? []) as any[]).sort((a, b) => String(a.first_day).localeCompare(String(b.first_day)))) {
         const any = w.company === "any";
         if ((!any && !COMPANIES[w.company]) || /כוח אדם/.test(w.full_name ?? "")) continue;
@@ -142,24 +145,31 @@ Deno.serve(async (req) => {
         if (f?.employee_id) inNoForm.add(`${f.company}|${f.employee_id}`);
         const why = !f ? "אין 101 ב-buk (לא נשלח / לא פתוח בחברה)" : f.failed ? "שליחת 101 נכשלה ב-buk" :
           `101 נשלח ${ddmm(f.sent)}${f.st === "opened" ? ", נפתח ולא הושלם" : ", עוד לא מולא"}`;
-        noForm.push(`• *${w.full_name}* (${any ? "מטבח" : COMPANIES[w.company]}) – ${w.shifts} משמרות${fe >= newSince ? ` · חדש/ה מ-${fe.slice(8, 10)}/${fe.slice(5, 7)}` : ""} · ${why}`);
+        // מטבח פסאו (4283) בלי טופס בשום חברה — משויך לפסאו עם הערה; אם יש טופס בחברה כלשהי — לחברה של הטופס
+        const co = any ? (f?.company ?? PASEO) : w.company;
+        noForm.push({ co, line: `• *${w.full_name}*${any ? " (מטבח" + (f ? "" : " — לוודא חברה") + ")" : ""} – ${w.shifts} משמרות${fe >= newSince ? ` · חדש/ה מ-${fe.slice(8, 10)}/${fe.slice(5, 7)}` : ""} · ${why}` });
       }
       const pending = forms.filter((f) => !inNoForm.has(`${f.company}|${f.employee_id}`) && !FILLED.has(f.status) && f.sent_at && now - Date.parse(f.sent_at) <= PENDING_DAYS * 864e5)
         .sort((a, b) => Date.parse(a.sent_at) - Date.parse(b.sent_at));
       const recent = forms.filter((f) => f.filled_at && now - Date.parse(f.filled_at) <= RECENT_DAYS * 864e5)
         .sort((a, b) => Date.parse(b.filled_at) - Date.parse(a.filled_at));
       if (pending.length || recent.length || failedSend.length || noForm.length) {
-        message = `📋 *טופס 101 — מצב*\n`;
-        if (noForm.length) message += full
-          ? `\n🚨 *עבדו בשיפט ב-${WORKED_DAYS} הימים האחרונים בלי 101 ממולא (${noForm.length}) — רשימה שבועית מלאה:*\n${noForm.join("\n")}\n`
-          : `\n🚨 *עובדים חדשים שעובדים בלי 101 ממולא (${noForm.length}):*\n${noForm.join("\n")}\n`;
-        if (failedSend.length) message += `\n❌ *השליחה נכשלה ב-buk — העובד לא קיבל את הטופס (${failedSend.length}):*\n` +
-          failedSend.map((f) => `• ${tag(f)} — ${ddmm(f.at)} (${f.code}) — לבדוק את הנייד ב-buk ולשלוח שוב`).join("\n") + "\n";
-        if (pending.length) message += `\n⏳ *עוד לא מילאו (${pending.length}):*\n` + pending.map((f) => {
-          const days = Math.floor((now - Date.parse(f.sent_at)) / 864e5);
-          return `• ${tag(f)} — נשלח ${ddmm(Date.parse(f.sent_at))} (לפני ${days} ימים)${f.status === "opened" ? " · פתח/ה ולא סיים/ה" : ""}${days >= 3 ? " ⚠️" : ""}`;
-        }).join("\n") + "\n";
-        if (recent.length) message += `\n✅ *מילאו ב-${RECENT_DAYS} הימים האחרונים (${recent.length}):*\n` + recent.map((f) => `• ${tag(f)} — ${ddmm(Date.parse(f.filled_at))}`).join("\n") + "\n";
+        const nm = (f: any) => `*${f.name}*`;
+        message = `📋 *טופס 101 — מצב*${full ? " (רשימה שבועית מלאה)" : ""}\n`;
+        for (const co of VENUE_ORDER) {
+          const nf = noForm.filter((x) => x.co === co), fs = failedSend.filter((f) => f.company === co);
+          const pd = pending.filter((f) => f.company === co), rc = recent.filter((f) => f.company === co);
+          if (!nf.length && !fs.length && !pd.length && !rc.length) continue;
+          message += `\n━━━━━━━━━━\n🏠 *${COMPANIES[co]}*\n`;
+          if (nf.length) message += `\n🚨 *${full ? `עבדו ב-${WORKED_DAYS} הימים האחרונים` : "עובדים חדשים"} בלי 101 ממולא (${nf.length}):*\n${nf.map((x) => x.line).join("\n")}\n`;
+          if (fs.length) message += `\n❌ *השליחה נכשלה — לבדוק נייד ב-buk ולשלוח שוב (${fs.length}):*\n` +
+            fs.map((f) => `• ${nm(f)} — ${ddmm(f.at)} (${f.code})`).join("\n") + "\n";
+          if (pd.length) message += `\n⏳ *עוד לא מילאו (${pd.length}):*\n` + pd.map((f) => {
+            const days = Math.floor((now - Date.parse(f.sent_at)) / 864e5);
+            return `• ${nm(f)} — נשלח ${ddmm(Date.parse(f.sent_at))} (לפני ${days} ימים)${f.status === "opened" ? " · פתח/ה ולא סיים/ה" : ""}${days >= 3 ? " ⚠️" : ""}`;
+          }).join("\n") + "\n";
+          if (rc.length) message += `\n✅ *מילאו ב-${RECENT_DAYS} הימים האחרונים (${rc.length}):*\n` + rc.map((f) => `• ${nm(f)} — ${ddmm(Date.parse(f.filled_at))}`).join("\n") + "\n";
+        }
         if (pending.length) message += `\nלתזכורת — לשלוח לעובד שוב את הקישור מ-buk.`;
       }
     }
