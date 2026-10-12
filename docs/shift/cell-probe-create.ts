@@ -1,4 +1,4 @@
-// תאים בשיפט: ?ids= קריאת תא מלא; ?emp=&date= תאים של עובד בתאריך; ?create=1&confirm=1&body=<json> → POST /api/cells/ (נפרס בסלוט shift-open-week-dish, 12/10)
+// תאים בשיפט: ?ids= קריאת תא מלא; ?emp=&date= תאים של עובד בתאריך; ?create=1&confirm=1&body=<json> → POST; ?patch=<id>&confirm=1&body=<json> → PATCH (נפרס בסלוט shift-open-week-dish, 12/10)
 import { createClient } from "jsr:@supabase/supabase-js@2";
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const BASE = "https://app.shiftorganizer.com";
@@ -38,6 +38,13 @@ Deno.serve(async (req) => {
     const p = await fetch(`${BASE}/api/cells/?application=${app}`, { method: "POST", headers: hdrs(jar, true), body: u.searchParams.get("body") ?? "{}" });
     const t = await p.text(); let jj: any = t; try { jj = JSON.parse(t); } catch { /* */ }
     out.create = { s: p.status, body: jj };
+  }
+  const pid = Number(u.searchParams.get("patch") ?? 0); // ?patch=<id>&confirm=1&body=<json> → PATCH (version נלקח מהתא)
+  if (pid && u.searchParams.get("confirm") === "1") {
+    const cur = await (await fetch(`${BASE}/api/cells/${pid}/?application=${app}`, { headers: hdrs(jar) })).json();
+    const p = await fetch(`${BASE}/api/cells/${pid}/?application=${app}`, { method: "PATCH", headers: hdrs(jar, true), body: JSON.stringify({ ...JSON.parse(u.searchParams.get("body") ?? "{}"), version: cur.version }) });
+    const t = await p.text(); let jj: any = t; try { jj = JSON.parse(t); } catch { /* */ }
+    out.patch = { s: p.status, notes: jj?.notes, ms: jj?.manual_start, ce: jj?.clock_end };
   }
   return new Response(JSON.stringify(out, null, 1), { headers: { "Content-Type": "application/json" } });
 });
