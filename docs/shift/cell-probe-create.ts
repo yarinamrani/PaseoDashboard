@@ -34,6 +34,16 @@ Deno.serve(async (req) => {
     out.day = rows.filter((c: any) => c.employee === emp && String(c.date).slice(0, 10) === date)
       .map((c: any) => ({ id: c.id, is_deleted: c.is_deleted, ps: c.planned_start, cs: c.clock_start, ce: c.clock_end, ms: c.manual_start, me: c.manual_end, msf: c.manual_start_full, mef: c.manual_end_full, role: c.role, shift: c.shift }));
   }
+  const dall = u.searchParams.get("dayall"); // ?dayall=YYYY-MM-DD — כל התאים של היום עם שם תפקיד ומשמרת
+  if (dall) {
+    const get = async (p: string) => { const x = await fetch(`${BASE}/api/${p}`, { headers: hdrs(jar) }); const j = await x.json().catch(() => []); return Array.isArray(j) ? j : (j?.results ?? []); };
+    const roles = new Map((await get(`roles/?application=${app}`)).map((x: any) => [x.id, x.name]));
+    const shifts = new Map((await get(`shifts/?application=${app}`)).map((x: any) => [x.id, x.name]));
+    const hm = (t: any) => t ? String(t).slice(0, 5) : "";
+    out.dayall = (await get("cells/")).filter((c: any) => !c.is_deleted && String(c.date).slice(0, 10) === dall)
+      .map((c: any) => ({ n: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(), emp: c.employee, role: roles.get(c.role) ?? c.role, shift: shifts.get(c.shift) ?? c.shift,
+        p: `${hm(c.planned_start)}-${hm(c.planned_end)}`, c: `${hm(c.clock_start)}-${hm(c.clock_end)}`, m: `${hm(c.manual_start)}-${hm(c.manual_end)}`, abs: c.absence, notes: c.notes }));
+  }
   const from = u.searchParams.get("scan"); // ?scan=YYYY-MM-DD — תאים עם יציאה בלי כניסה + שאר התאים של אותו עובד באותו יום
   if (from) {
     const j = await (await fetch(`${BASE}/api/cells/`, { headers: hdrs(jar) })).json().catch(() => []);
