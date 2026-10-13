@@ -40,12 +40,15 @@ const JESSIE_HELP = `👋 כאן ג׳סי. אפשר לכתוב לי:
 • *אוכל עובדים* — שורה "אוכל ערב" (או בוקר) ומתחת "שם סכום" בכל שורה. הכותרת יכולה להיות גם בסוף, ואם לא כתוב תאריך — אני מזהה לבד אם זה היום או אתמול
 • *לא הגיע* — "1 לא הגיע" / "2 לא הגיע" לפי מספרי השורות בהודעת השעון האחרונה
 • *שעות* — "רוני כניסה 19:30" / "דנה יציאה 23:40"
-• *טופס 101* — "101 פסאו" לרשימה, "שלח 101 פסאו" לשליחה (גם טאלה / אומינו)
+• *טופס 101* — "שלח 101 מור בניסטי" → אני בודקת מי זה ומאיזו חברה, ושולחת אחרי "כן". "101 פסאו" — מי חסר
 שמות אפשר לכתוב בקיצור או עם שגיאת כתיב קטנה.`;
 // טופס 101 — מטופל ע"י לולאת hr-101 בנפרד. הבוט הראשי שותק על כל אזכור של 101.
 const F101_CMD = /101/;
-// 13/10: "101 פסאו" = תצוגה מקדימה · "שלח 101 פסאו" = שליחה (טופס חדש לעובד חדש / שליחה חוזרת למי שלא סיים) · "... הכל" = גם ותיקים בלי טופס. רק ירין (SHIFT_CLOCK_EDITORS).
+// 13/10: "101 פסאו" = רשימת מי חסר (בלי שליחה). "שלח 101 מור בניסטי" = עובד אחד: ג׳סי מזהה אותו, את החברה ואת המצב ב-buk
+// ומחכה ל"כן" / "כן טאלה" / "לא" של ירין (שעה). רק מהמספרים ב-SHIFT_CLOCK_EDITORS.
 const F101_SEND = /^(?:(שלח|תשלח|לשלוח)\s+)?(?:טופס\s+)?101\s+(?:ל|ב)?(פסאו|טאלה|טלה|אומינו)(\s+הכל)?\s*[.!]*$/;
+const F101_ONE = /^(?:שלח|תשלח|לשלוח)\s+(?:טופס\s+)?101\s+(?:ל-)?(.{2,40}?)\s*[.!]*$/;
+const F101_YES = /^(כן|לא|אשר|מאשר|בטל)(?:\s+(פסאו|טאלה|טלה|אומינו))?\s*[.!👍]*$/;
 const F101_DECISION = /^(כן|לא|מאשר|מאושר|אישור|בטל|דלג)(\s|$|\d)/;
 // שיבוץ עובדים: פועל + הקשר של יום/משמרת. נבדק לפני CORR — גם היא תופסת "תוריד".
 const SHIFT_VERB = /(תשים|לשים|תשבץ|לשבץ|תוסיף|להוסיף|תחזיר|להחזיר|תוריד|להוריד|תוציא|להוציא|תמחק|למחוק)/;
@@ -208,17 +211,32 @@ async function handleText(bod: string, group: string, p: any){
   // "ג׳סי, ..." / "היי ג׳סי" / "... ג׳סי?" — פנייה בשם; ברכה בלבד או "עזרה" → הודעת עזרה
   const named = JESSIE_ANY.test(bod);
   if (named){ bod = bod.replace(JESSIE_LEAD,"").replace(JESSIE_TAIL,"").trim(); if (JGREET_ONLY.test(bod) || /^(עזרה|מה את יודעת|מה את יכולה)/.test(bod)){ await gSend(p,group,JESSIE_HELP); return; } }
-  if ((mm0=bod.match(F101_SEND))){
-    const editors=String(p.editors||"").split(",").map((x: string)=>x.trim()).filter(Boolean);
-    if (!editors.includes(p.sender)){ await gSend(p,group,"⛔ שליחת 101 לעובדים — רק ירין."); return; }
-    const go=!!mm0[1];
-    if (go) await gSend(p,group,"⏳ שולחת 101 ל"+mm0[2]+"… (עד דקה)");
+  const f101 = async (q: Record<string,string>) => {
     try{
-      const q=new URLSearchParams({mode:"send",venue:mm0[2],secret:p.syncSecret}); if(go) q.set("confirm","1"); if(mm0[3]) q.set("all","1");
-      const r=await fetch(`${SUPABASE_URL}/functions/v1/ontopo-feedback-list?${q}`); const j=await r.json().catch(()=>null);
+      const r=await fetch(`${SUPABASE_URL}/functions/v1/ontopo-feedback-list?${new URLSearchParams({...q, secret:p.syncSecret})}`); const j=await r.json().catch(()=>null);
       await gSend(p,group,j?.message||("❌ תקלה ב-101: "+String(j?.error||r.status).slice(0,150)));
     }catch(e){ await gSend(p,group,"❌ תקלה ב-101: "+String(e).slice(0,150)); }
-    return;
+  };
+  // חלק מההודעות נכנסות לתור בלי senderData.sender — אז שואלים את Green API (getMessage) מי שלח
+  const isEditor = async () => {
+    let s=p.sender||"";
+    if (!s && p.msgId){ try{ const r=await fetch(gUrl(p,"getMessage"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chatId:group,idMessage:p.msgId})}); s=(await r.json())?.senderId||""; }catch(_e){} }
+    return !!s && String(p.editors||"").split(",").map((x: string)=>x.trim()).filter(Boolean).includes(s);
+  };
+  if ((mm0=bod.match(F101_SEND))){ await f101({mode:"send",venue:mm0[2]}); return; }
+  if ((mm0=bod.match(F101_ONE))){
+    if (!(await isEditor())){ await gSend(p,group,"⛔ שליחת 101 לעובדים — רק ירין."); return; }
+    await f101({mode:"one",name:mm0[1]}); return;
+  }
+  if ((mm0=bod.match(F101_YES))){
+    const since=new Date(Date.now()-60*60e3).toISOString();
+    const pr=await fetch(sb(`hr_101_queue?status=eq.one_confirm&asked_at=gte.${since}&select=id,full_name&order=id.desc&limit=1`),{headers:sbh}).then(r=>r.json()).catch(()=>[]);
+    if (Array.isArray(pr) && pr.length && await isEditor()){
+      if (/^(לא|בטל)/.test(mm0[1])){ await f101({mode:"one",cancel:String(pr[0].id)}); return; }
+      await gSend(p,group,"⏳ שולחת 101 ל"+pr[0].full_name+"…");
+      const q: Record<string,string>={mode:"one",confirm:String(pr[0].id)}; if (mm0[2]) q.company=mm0[2];
+      await f101(q); return;
+    }
   }
   // טופס 101 — לולאת hr-101 מטפלת בזה בנפרד; הבוט הראשי שותק.
   if (F101_CMD.test(bod)) return;
@@ -328,7 +346,7 @@ async function processBody(body: any, groups: string[], p: any){
   if (chatId.endsWith("@g.us")) await regGroup(chatId, (body.senderData?.chatName||"").trim());
   if (!chatId || !groups.includes(chatId)) return false;
   const m=adapt(body); if(!m) return false;
-  await processOne(m,chatId,{...p, sender: body.senderData?.sender||""}); return true;
+  await processOne(m,chatId,{...p, sender: body.senderData?.sender||(chatId.endsWith("@c.us")?chatId:""), msgId: body.idMessage||""}); return true;
 }
 
 Deno.serve(async (req: Request) => {
