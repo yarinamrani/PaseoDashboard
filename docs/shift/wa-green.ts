@@ -40,9 +40,12 @@ const JESSIE_HELP = `👋 כאן ג׳סי. אפשר לכתוב לי:
 • *אוכל עובדים* — שורה "אוכל ערב" (או בוקר) ומתחת "שם סכום" בכל שורה. הכותרת יכולה להיות גם בסוף, ואם לא כתוב תאריך — אני מזהה לבד אם זה היום או אתמול
 • *לא הגיע* — "1 לא הגיע" / "2 לא הגיע" לפי מספרי השורות בהודעת השעון האחרונה
 • *שעות* — "רוני כניסה 19:30" / "דנה יציאה 23:40"
+• *טופס 101* — "101 פסאו" לרשימה, "שלח 101 פסאו" לשליחה (גם טאלה / אומינו)
 שמות אפשר לכתוב בקיצור או עם שגיאת כתיב קטנה.`;
 // טופס 101 — מטופל ע"י לולאת hr-101 בנפרד. הבוט הראשי שותק על כל אזכור של 101.
 const F101_CMD = /101/;
+// 13/10: "101 פסאו" = תצוגה מקדימה · "שלח 101 פסאו" = שליחה (טופס חדש לעובד חדש / שליחה חוזרת למי שלא סיים) · "... הכל" = גם ותיקים בלי טופס. רק ירין (SHIFT_CLOCK_EDITORS).
+const F101_SEND = /^(?:(שלח|תשלח|לשלוח)\s+)?(?:טופס\s+)?101\s+(?:ל|ב)?(פסאו|טאלה|טלה|אומינו)(\s+הכל)?\s*[.!]*$/;
 const F101_DECISION = /^(כן|לא|מאשר|מאושר|אישור|בטל|דלג)(\s|$|\d)/;
 // שיבוץ עובדים: פועל + הקשר של יום/משמרת. נבדק לפני CORR — גם היא תופסת "תוריד".
 const SHIFT_VERB = /(תשים|לשים|תשבץ|לשבץ|תוסיף|להוסיף|תחזיר|להחזיר|תוריד|להוריד|תוציא|להוציא|תמחק|למחוק)/;
@@ -69,7 +72,7 @@ function rosterDate(b: string){ const m=b.match(/(\d{1,2})[./](\d{1,2})/); if(!m
   const y=new Date().getUTCFullYear(); return `${y}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`; }
 
 async function getCfg(): Promise<Record<string,string>> {
-  const r = await fetch(sb(`app_config?select=key,value&or=(key.like.WA*,key.like.GREENAPI*,key.eq.ALFRED_SYNC_SECRET)`), { headers: sbh });
+  const r = await fetch(sb(`app_config?select=key,value&or=(key.like.WA*,key.like.GREENAPI*,key.eq.ALFRED_SYNC_SECRET,key.eq.SHIFT_CLOCK_EDITORS)`), { headers: sbh });
   const rows = await r.json(); const o: Record<string,string> = {}; for (const x of rows) o[x.key]=x.value; return o;
 }
 async function rpc(name: string, args: unknown){ try{ const r=await fetch(sb(`rpc/${name}`),{method:"POST",headers:sbh,body:JSON.stringify(args)}); return await r.json(); }catch{return null;} }
@@ -201,9 +204,22 @@ async function tryGuestMsg(bod: string, group: string, p: any){
 }
 
 async function handleText(bod: string, group: string, p: any){
+  let mm0: RegExpMatchArray|null;
   // "ג׳סי, ..." / "היי ג׳סי" / "... ג׳סי?" — פנייה בשם; ברכה בלבד או "עזרה" → הודעת עזרה
   const named = JESSIE_ANY.test(bod);
   if (named){ bod = bod.replace(JESSIE_LEAD,"").replace(JESSIE_TAIL,"").trim(); if (JGREET_ONLY.test(bod) || /^(עזרה|מה את יודעת|מה את יכולה)/.test(bod)){ await gSend(p,group,JESSIE_HELP); return; } }
+  if ((mm0=bod.match(F101_SEND))){
+    const editors=String(p.editors||"").split(",").map((x: string)=>x.trim()).filter(Boolean);
+    if (!editors.includes(p.sender)){ await gSend(p,group,"⛔ שליחת 101 לעובדים — רק ירין."); return; }
+    const go=!!mm0[1];
+    if (go) await gSend(p,group,"⏳ שולחת 101 ל"+mm0[2]+"… (עד דקה)");
+    try{
+      const q=new URLSearchParams({mode:"send",venue:mm0[2],secret:p.syncSecret}); if(go) q.set("confirm","1"); if(mm0[3]) q.set("all","1");
+      const r=await fetch(`${SUPABASE_URL}/functions/v1/ontopo-feedback-list?${q}`); const j=await r.json().catch(()=>null);
+      await gSend(p,group,j?.message||("❌ תקלה ב-101: "+String(j?.error||r.status).slice(0,150)));
+    }catch(e){ await gSend(p,group,"❌ תקלה ב-101: "+String(e).slice(0,150)); }
+    return;
+  }
   // טופס 101 — לולאת hr-101 מטפלת בזה בנפרד; הבוט הראשי שותק.
   if (F101_CMD.test(bod)) return;
   if (F101_DECISION.test(bod) && await f101Pending()) return;
@@ -312,7 +328,7 @@ async function processBody(body: any, groups: string[], p: any){
   if (chatId.endsWith("@g.us")) await regGroup(chatId, (body.senderData?.chatName||"").trim());
   if (!chatId || !groups.includes(chatId)) return false;
   const m=adapt(body); if(!m) return false;
-  await processOne(m,chatId,p); return true;
+  await processOne(m,chatId,{...p, sender: body.senderData?.sender||""}); return true;
 }
 
 Deno.serve(async (req: Request) => {
@@ -321,7 +337,7 @@ Deno.serve(async (req: Request) => {
   let scenes: string[]=[]; try{scenes=JSON.parse(cfg.WA_LIGHT_SCENES||"[]");}catch{scenes=[];}
   const groups: string[]=JSON.parse(cfg.WA_INVOICE_GROUPS||"[]");
   const ocrThink=Math.min(parseInt(cfg.WA_OCR_THINKING||"1024")||1024, 4096);
-  const p={gApiUrl:cfg.GREENAPI_API_URL,gId:cfg.GREENAPI_ID_INSTANCE,gToken:cfg.GREENAPI_API_TOKEN,gkey:cfg.WA_GEMINI_KEY,model:cfg.WA_GEMINI_MODEL||"gemini-2.5-flash",chatModel:cfg.WA_CHAT_MODEL||"gemini-2.5-flash",secret:cfg.WA_INGEST_SECRET,syncSecret:cfg.ALFRED_SYNC_SECRET,lights:(cfg.WA_LIGHTS_ENABLED==="true"),scenes,ocrThink};
+  const p={gApiUrl:cfg.GREENAPI_API_URL,gId:cfg.GREENAPI_ID_INSTANCE,gToken:cfg.GREENAPI_API_TOKEN,gkey:cfg.WA_GEMINI_KEY,model:cfg.WA_GEMINI_MODEL||"gemini-2.5-flash",chatModel:cfg.WA_CHAT_MODEL||"gemini-2.5-flash",secret:cfg.WA_INGEST_SECRET,syncSecret:cfg.ALFRED_SYNC_SECRET,editors:cfg.SHIFT_CLOCK_EDITORS||"",lights:(cfg.WA_LIGHTS_ENABLED==="true"),scenes,ocrThink};
 
   if (req.method==="POST"){
     let body: any=null; try{ body=await req.json(); }catch{ body=null; }
