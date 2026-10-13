@@ -845,12 +845,16 @@ async function dmOne(jar: Record<string, string>, ph: string, text: string, dry:
   const { data: al } = await sb.from("shift_clock_msgs").select("cell_id, app, kind, partner_id, name, date, created_at")
     .gte("created_at", new Date(Date.now() - REPLY_MAX_H * 36e5).toISOString()).order("created_at", { ascending: false });
   const seen = new Set<number>();
+  let fixedNote = ""; // 13/10: תקלה שכבר תוקנה ידנית בשיפט — לא ליפול ל"כניסה מוקדמת" (עדי פלדינגר שלחה 19:15 ליציאה, וקיבלה "כניסה")
   for (const a of (isIn ? [] : al ?? []) as any[]) {
     if (!DM_KINDS.has(a.kind) || seen.has(a.cell_id)) continue;
     seen.add(a.cell_id);
     const cell = (await appCells(jar, a.app)).find((c: any) => c.id === a.cell_id);
     if (!cell || cell.is_deleted || !ids.has(Number(cell.employee))) continue;
-    if (a.kind === "exit_no_entry" ? cell.manual_start : cell.manual_end) continue; // התקלה כבר תוקנה — לא לדרוס
+    if (a.kind === "exit_no_entry" ? cell.manual_start : cell.manual_end) {
+      if (!fixedNote) fixedNote = a.kind === "exit_no_entry" ? `כניסה ${hm(cell.manual_start)}` : `יציאה ${hm(cell.manual_end)}`;
+      continue;
+    } // התקלה כבר תוקנה — לא לדרוס
     const kw: "start" | "end" = RE_START.test(text) ? "start" : RE_END.test(text) ? "end" : a.kind === "exit_no_entry" ? "start" : "end";
     const t = times[0], label = kw === "end" ? "יציאה" : "כניסה";
     const row: Row = { msg_id: "", line: 1, cell_id: a.cell_id, app: a.app, kind: a.kind, partner_id: a.partner_id, name: a.name, date: a.date };
@@ -867,6 +871,7 @@ async function dmOne(jar: Record<string, string>, ph: string, text: string, dry:
     const res = await applySeg(jar, { row, times: [t], kw });
     return { msg: `📲 *${a.name}* שלח/ה ${label} ${t}\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`, row };
   }
+  if (fixedNote) return { msg: `ℹ️ *${who}* שלח/ה לבוט ${times[0] ?? quote} — כבר מעודכן בשיפט (${fixedNote}, תוקן ידנית). לא שיניתי.`, row: null };
   const homes = mine.filter((e: any) => APPS[e.application]).map((e: any) => ({ id: Number(e.id), app: Number(e.application) }));
   return await earlyIn(jar, ids, homes, who, text, times[0] ?? null, recvMs, dry);
 }
