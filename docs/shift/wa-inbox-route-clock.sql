@@ -28,7 +28,7 @@ begin
   if tm = 'quotedMessage' then hit := true;
   elsif tm in ('textMessage', 'extendedTextMessage') then
     t := coalesce(new.body->'messageData'->'textMessageData'->>'textMessage', new.body->'messageData'->'extendedTextMessageData'->>'text', '');
-    t := regexp_replace(t, '^\s*(ג[׳''`]?סי|jessie)[[:space:],:!.-]*', '', 'i'); -- 13/10: "ג׳סי, ..." — השם של הבוט
+    t := regexp_replace(t, '^\s*((היי|הי|הלו|שלום|אהלן|בוקר טוב|ערב טוב)[[:space:],!.]*)?(ג[׳''`]?סי|jessie)[[:space:],:!.?-]*', '', 'i'); -- 13/10: "ג׳סי, ..." / "היי ג׳סי ..." — השם של הבוט
     -- 13/10: "1 לא הגיע" (כל השורות) · רשימת אוכל עם שורת "אוכל ..." בכל מקום (גם בסוף)
     if (select count(*) >= 1 and bool_and(l ~ '^#?[0-9]{1,2}[[:space:]]*[-.):]?[[:space:]]*(לא[[:space:]]+(הגיע|הגיעה|בא|באה|עבד|עבדה)|ביטול|בוטל|בוטלה)')
           from unnest(regexp_split_to_array(trim(t), '[[:space:]]*\n[[:space:]]*')) l where l <> '')

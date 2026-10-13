@@ -29,7 +29,12 @@ const CHARTR = /גרף|תרשים/;
 const TURNR = /מי קם|מתפנ|תחלוף|פינוי שולחנ|מי מסיים/;
 const GMSGR = /תכין הודעה|נסח הודעה|תנסח הודעה|הכן הודעה|הודעה לאורח/;
 // 13/10: "ג׳סי, ..." — השם של הבוט. מורידים את הפנייה לפני הניתוב; "ג׳סי" לבד → עזרה
-const JESSIE = /^\s*(ג[׳'`]?סי|jessie)[\s,:!.-]*/i;
+const JNAME = "(?:ג[׳'`]?סי|jessie)(?=$|[\\s,:!.?])";
+const JGREET = "(?:היי|הי|הלו|שלום|אהלן|יו|בוקר טוב|ערב טוב|צהריים טובים|hey|hi|hello)";
+const JESSIE_ANY = new RegExp(`(^|[\\s,])${JNAME}`, "i");
+const JESSIE_LEAD = new RegExp(`^\\s*(?:${JGREET}[\\s,!.]*)?${JNAME}[\\s,:!.?-]*`, "i");
+const JESSIE_TAIL = new RegExp(`[\\s,]*${JNAME}[\\s?!.]*$`, "i");
+const JGREET_ONLY = new RegExp(`^\\s*${JGREET}?[\\s,!.?]*(מה (נשמע|קורה|המצב|שלומך))?[\\s,!.?]*$`, "i");
 const JESSIE_HELP = `👋 כאן ג׳סי. אפשר לכתוב לי:
 • *שאלה חופשית* — ג׳סי, כמה סועדים היום? / מי עובד היום בפלור?
 • *אוכל עובדים* — שורה "אוכל ערב" (או בוקר) ומתחת "שם סכום" בכל שורה. הכותרת יכולה להיות גם בסוף, ואם לא כתוב תאריך — אני מזהה לבד אם זה היום או אתמול
@@ -196,8 +201,9 @@ async function tryGuestMsg(bod: string, group: string, p: any){
 }
 
 async function handleText(bod: string, group: string, p: any){
-  const named = JESSIE.test(bod);
-  if (named){ bod = bod.replace(JESSIE,"").trim(); if (!bod || /^(עזרה|מה את יודעת|מה את יכולה)/.test(bod)){ await gSend(p,group,JESSIE_HELP); return; } }
+  // "ג׳סי, ..." / "היי ג׳סי" / "... ג׳סי?" — פנייה בשם; ברכה בלבד או "עזרה" → הודעת עזרה
+  const named = JESSIE_ANY.test(bod);
+  if (named){ bod = bod.replace(JESSIE_LEAD,"").replace(JESSIE_TAIL,"").trim(); if (JGREET_ONLY.test(bod) || /^(עזרה|מה את יודעת|מה את יכולה)/.test(bod)){ await gSend(p,group,JESSIE_HELP); return; } }
   // טופס 101 — לולאת hr-101 מטפלת בזה בנפרד; הבוט הראשי שותק.
   if (F101_CMD.test(bod)) return;
   if (F101_DECISION.test(bod) && await f101Pending()) return;
