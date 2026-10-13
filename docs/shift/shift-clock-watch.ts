@@ -331,6 +331,14 @@ async function handleReplies(dry: boolean) {
     let reply: string;
     if (!editors.includes(m.senderId)) reply = "⛔ עדכון שעות דרך הבוט פתוח רק לירין.";
     else {
+      const nsl = text.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (nsl.length && nsl.every((l) => NOSHOW_RE.test(l))) {
+        if (!jar) { jar = {}; if (!(await login(jar))) jar = null; }
+        reply = jar ? await noShowCmd(jar, nsl, dry, quoted) : "❌ לא הצלחתי להתחבר לשיפט.";
+        results.push({ msg: m.idMessage, text, reply });
+        if (!dry) { await send(target, reply, m.idMessage); await sb.from("shift_clock_replies").update({ result: { reply } }).eq("msg_id", m.idMessage); }
+        continue;
+      }
       const { segs, problems } = parse(text, (byMsg.get(quoted) ?? []).sort((a, b) => a.line - b.line));
       const lines: string[] = [...problems.map((p) => `❌ ${p}`)];
       if (!segs.length && !problems.length) lines.push("לא מצאתי שעה בתשובה. דוגמה: 19:30 · 2 19:30 · אופל 19:15-01:55 · כניסה 19:15");
@@ -376,7 +384,22 @@ async function matchEmp(name: string, cands: Cand[]): Promise<Cand[]> {
   let hits = cands.filter((c) => [c.first, c.last, c.first + c.last, c.last + c.first].some((v) => nrm(v) === t));
   if (!hits.length) { const ids = new Set((await aliases()).filter((a: any) => a.alias === t).map((a: any) => Number(a.employee_id))); hits = cands.filter((c) => ids.has(c.emp)); }
   if (!hits.length && t.length >= 3) hits = cands.filter((c) => nrm(c.first).startsWith(t) || nrm(c.first + c.last).startsWith(t));
+  if (!hits.length && t.length >= 3) { // שגיאת כתיב של אות אחת ("אמלי" = אמילי) — רק אם יש התאמה יחידה
+    const fz = cands.filter((c) => lev1(nrm(c.first), t));
+    if (fz.length === 1) hits = fz;
+  }
   return hits;
+}
+function lev1(a: string, b: string): boolean { // מרחק עריכה ≤ 1
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, diff = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++diff > 1) return false;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return diff + (a.length - i) + (b.length - j) <= 1;
 }
 const ilYmd = (offsetDays = 0) => ymd(ilNow() + offsetDays * 864e5);
 function dateFrom(text: string): string | null {
@@ -489,20 +512,38 @@ const workDay = () => new Date(ilNow()).getUTCHours() < 6 ? ilYmd(-1) : ilYmd(0)
 
 // "אוכל עובדים בוקר|ערב [יום|DD/MM]" + שורות. בלי בוקר/ערב בכותרת → הבוט מסיק לפי מי שהחתים (foodAuto).
 async function foodCmd(jar: Record<string, string>, text: string, dry: boolean): Promise<string> {
-  const lines = bodyLines(text);
-  const head = lines[0] ?? "";
+  const all = bodyLines(text);
+  const hi = Math.max(0, all.findIndex((l) => /^\s*אוכל/.test(l))); // שורת "אוכל ..." יכולה להיות ראשונה או אחרונה
+  const head = all[hi] ?? "", lines = all.filter((_, i) => i !== hi);
   const tip = /ערב|לילה/.test(head) ? TIP_PM : /בוקר|צהריים/.test(head) ? TIP_AM : null;
-  const date = dateFrom(head) ?? dayFrom(head) ?? (tip ? ilYmd(0) : workDay());
-  if (!tip) return (await foodAuto(jar, lines.slice(1), dry, text, date, true))!;
-  return await foodRun(jar, date, tip, lines.slice(1), dry, text);
+  const date = dateFrom(head) ?? dayFrom(head) ?? await bestDate(jar, lines, tip);
+  if (!tip) return (await foodAuto(jar, lines, dry, text, date, true))!;
+  return await foodRun(jar, date, tip, lines, dry, text);
+}
+// בלי תאריך מפורש: היום או אתמול — לפי איפה יותר מהשמות החתימו (רשימה של ערב שנשלחת בבוקר שאחרי)
+async function bestDate(jar: Record<string, string>, lines: string[], tip: number | null): Promise<string> {
+  const cands = workDay() === ilYmd(0) ? [ilYmd(0), ilYmd(-1)] : [workDay()];
+  if (cands.length === 1) return cands[0];
+  const shifts = tip === TIP_AM ? AM_SHIFTS : tip === TIP_PM ? PM_SHIFTS : null;
+  const names = lines.map((l) => l.match(FOOD_LINE)?.[1]).filter(Boolean) as string[];
+  let best = cands[0], bestN = -1;
+  for (const d of cands) {
+    const worked = (await appCells(jar, F_APP)).filter((c) => String(c.date).slice(0, 10) === d && !c.is_deleted && c.employee
+      && (shifts ? shifts.has(c.shift) : (AM_SHIFTS.has(c.shift) || PM_SHIFTS.has(c.shift))) && (c.clock_start || c.manual_start));
+    const cs = candsOf(worked);
+    let n = 0; for (const nm of names) if ((await matchEmp(nm, cs)).length === 1) n++;
+    if (n > bestN) { best = d; bestN = n; }
+  }
+  return best;
 }
 
 // רשימה בלבד ("מאיה 20 / אורן 15 ...") — בלי כותרת. יום = יום העבודה (עד 06:00 — אתמול).
 // בוקר/ערב: לפי מי שהחתים — עובדים שהיו רק במשמרת אחת מכריעים; כולם בכפולה / סותרים → שואל.
 // force=false: אם פחות מחצי מהשמות הם עובדים שהחתימו — לא שלי (null → wa-green, למשל רשימת קניות).
-async function foodAuto(jar: Record<string, string>, lines: string[], dry: boolean, text: string, date = workDay(), force = false): Promise<string | null> {
+async function foodAuto(jar: Record<string, string>, lines: string[], dry: boolean, text: string, date0: string | null = null, force = false): Promise<string | null> {
   const rows = lines.map((l) => l.match(FOOD_LINE));
   if (!force && (rows.length < 2 || rows.some((m) => !m))) return null;
+  const date = date0 ?? await bestDate(jar, lines, null);
   const worked = (await appCells(jar, F_APP)).filter((c) => String(c.date).slice(0, 10) === date && !c.is_deleted && c.employee
     && (AM_SHIFTS.has(c.shift) || PM_SHIFTS.has(c.shift)) && (c.clock_start || c.manual_start));
   const cands = candsOf(worked);
@@ -577,8 +618,40 @@ async function processPendingFood(jar: Record<string, string>, target: string) {
   }
 }
 
+// "1 לא הגיע" — מתייחס לשורות בהודעת השעון האחרונה (או בהודעה שעליה עונים). מסמן "לא הגיע" בהערת התא ומשתיק את ההתראה.
+async function noShowCmd(jar: Record<string, string>, lines: string[], dry: boolean, quoted: string | null): Promise<string> {
+  let rows: Row[] = [];
+  if (quoted) rows = ((await sb.from("shift_clock_msgs").select("*").eq("msg_id", quoted)).data ?? []) as Row[];
+  else {
+    const { data } = await sb.from("shift_clock_msgs").select("*").gte("created_at", new Date(Date.now() - REPLY_MAX_H * 36e5).toISOString())
+      .gt("line", 0).order("created_at", { ascending: false }).limit(60);
+    const want = lines.map((l) => +(l.match(NOSHOW_RE)?.[1] ?? 0));
+    const all = (data ?? []) as Row[]; // ההודעה האחרונה שיש בה את כל מספרי השורות שנשלחו
+    const mid = [...new Set(all.map((r) => r.msg_id))].find((id) => want.every((n) => all.some((r) => r.msg_id === id && r.line === n)));
+    rows = all.filter((r) => r.msg_id === mid);
+  }
+  const out: string[] = [];
+  for (const l of lines) {
+    const n = +(l.match(NOSHOW_RE)?.[1] ?? 0), r = rows.find((x) => x.line === n);
+    if (!r) { out.push(`❌ שורה ${n} – לא מצאתי אותה בהודעת השעון האחרונה`); continue; }
+    if (dry) { out.push(`(dry) ${r.name} ${ddmm(r.date)} – לא הגיע/ה`); continue; }
+    await switchApp(jar, r.app);
+    const cur = await (await fetch(`${BASE}/api/cells/${r.cell_id}/?application=${r.app}`, { headers: hdrs(jar) })).json().catch(() => null);
+    if (!cur?.version) { out.push(`❌ ${r.name} – התא לא נמצא בשיפט`); continue; }
+    const notes = /לא הגיע/.test(cur.notes ?? "") ? cur.notes : [cur.notes, "לא הגיע"].filter(Boolean).join(" · ");
+    const pr = await fetch(`${BASE}/api/cells/${r.cell_id}/?application=${r.app}`, { method: "PATCH", headers: hdrs(jar, true), body: JSON.stringify({ notes, version: cur.version }) });
+    await sb.from("shift_clock_alerts").upsert([{ cell_id: r.cell_id, kind: "no_show" }], { onConflict: "cell_id,kind", ignoreDuplicates: true });
+    out.push(pr.ok ? `✅ ${r.name} (${ddmm(r.date)}) – סומן "לא הגיע"` : `❌ ${r.name} – ${pr.status}`);
+  }
+  return out.join("\n");
+}
+const JESSIE_RE = /^\s*(ג[׳'`]?סי|jessie)[\s,:!.-]*/i; // "ג׳סי, ..." — הפנייה לבוט בשם
+const NOSHOW_RE = /^\s*#?(\d{1,2})\s*[-.):]?\s*(לא\s+(הגיע|הגיעה|בא|באה|עבד|עבדה)|ביטול|בוטל|בוטלה)(?=\s|$|[.!,])/;
 async function dispatch(jar: Record<string, string>, text: string, dry: boolean): Promise<string | null> {
-  if (/^\s*אוכל/.test(text)) return await foodCmd(jar, text, dry);
+  text = text.replace(JESSIE_RE, "");
+  const nsLines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (nsLines.length && nsLines.every((l) => NOSHOW_RE.test(l))) return await noShowCmd(jar, nsLines, dry, null);
+  if (text.split("\n").some((l) => /^\s*אוכל/.test(l))) return await foodCmd(jar, text, dry);
   if (/^\s*(בוקר|ערב)\s*$/.test(text)) return await foodAnswer(jar, text, dry);
   if (![...text.matchAll(TIME_RE)].length) return await foodAuto(jar, bodyLines(text), dry, text);
   return await hoursMulti(jar, text, dry);

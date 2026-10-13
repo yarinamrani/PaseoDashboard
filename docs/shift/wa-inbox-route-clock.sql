@@ -28,8 +28,16 @@ begin
   if tm = 'quotedMessage' then hit := true;
   elsif tm in ('textMessage', 'extendedTextMessage') then
     t := coalesce(new.body->'messageData'->'textMessageData'->>'textMessage', new.body->'messageData'->'extendedTextMessageData'->>'text', '');
+    t := regexp_replace(t, '^\s*(ג[׳''`]?סי|jessie)[[:space:],:!.-]*', '', 'i'); -- 13/10: "ג׳סי, ..." — השם של הבוט
+    -- 13/10: "1 לא הגיע" (כל השורות) · רשימת אוכל עם שורת "אוכל ..." בכל מקום (גם בסוף)
+    if (select count(*) >= 1 and bool_and(l ~ '^#?[0-9]{1,2}[[:space:]]*[-.):]?[[:space:]]*(לא[[:space:]]+(הגיע|הגיעה|בא|באה|עבד|עבדה)|ביטול|בוטל|בוטלה)')
+          from unnest(regexp_split_to_array(trim(t), '[[:space:]]*\n[[:space:]]*')) l where l <> '')
+       or (t ~ '(^|\n)[[:space:]]*אוכל' and t ~ '[^0-9\n]{2,30}[[:space:]:–-]+[0-9]{1,3}') then
+      new.status := 'clock_cmd'; hit := true;
+    end if;
     -- 11/10: רשימת אוכל בלי כותרת (2+ שורות, כל שורה "שם סכום") ותשובה "בוקר"/"ערב" לשאלה פתוחה
-    if (select count(*) >= 2 and bool_and(l ~ '^[^0-9]{2,30}[[:space:]:–-]+[0-9]{1,3}[[:space:]]*(₪|ש["״]?ח|שקל|שקלים|nis)?[[:space:].,]*$')
+    if hit then null;
+    elsif (select count(*) >= 2 and bool_and(l ~ '^[^0-9]{2,30}[[:space:]:–-]+[0-9]{1,3}[[:space:]]*(₪|ש["״]?ח|שקל|שקלים|nis)?[[:space:].,]*$')
           from unnest(regexp_split_to_array(trim(t), '[[:space:]]*\n[[:space:]]*')) l where l <> '')
        or (t ~ '^\s*(בוקר|ערב)\s*$' and exists (select 1 from shift_food_pending where status = 'ask' and created_at > now() - interval '12 hours')) then
       new.status := 'clock_cmd'; hit := true;
