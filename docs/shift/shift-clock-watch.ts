@@ -201,7 +201,9 @@ async function tipsCheck(jar: Record<string, string>, date: string, floorCells: 
 const TIME_RE = /(?<!\d)([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)/g;
 const RE_START = /(כניסה|נכנס|עלי|עלה|עלתה|התחיל|התחילה|הגיע|הגיעה)/;
 const RE_END = /(יציאה|יצא|יצאה|סיים|סיימה|ירד|ירדה|עזב|עזבה)/;
-type Row = { msg_id: string; line: number; cell_id: number; app: number; kind: string; partner_id: number | null; name: string; date: string };
+// 15/10: אישור לשעה שעובד שלח ונעצרה כחשודה ("JNATHAN שלח יציאה 02:10 — יוצא משמרת של 16.2 ש'" → "השעה נכונה")
+const CONFIRM_RE = /^\s*(השעה נכונה|שעה נכונה|נכון|נכונה|כן|אשר|מאשר|מאושר|תעדכן|עדכן|תאשר|ok|אוקי|👍)\s*[.!👍]*\s*$/i;
+type Row = { msg_id: string; line: number; cell_id: number; app: number; kind: string; partner_id: number | null; name: string; date: string; proposed?: string | null };
 type Seg = { row: Row; times: string[]; kw: "start" | "end" | null };
 
 // שם/מספר ושעה יכולים להיות באותה שורה או בשורות נפרדות ("Kiran" ואז "01:30")
@@ -339,9 +341,22 @@ async function handleReplies(dry: boolean) {
         if (!dry) { await send(target, reply, m.idMessage); await sb.from("shift_clock_replies").update({ result: { reply } }).eq("msg_id", m.idMessage); }
         continue;
       }
-      const { segs, problems } = parse(text, (byMsg.get(quoted) ?? []).sort((a, b) => a.line - b.line));
+      const qrows = byMsg.get(quoted) ?? [];
+      const prop = qrows.find((x) => x.proposed);
+      if (CONFIRM_RE.test(text) && prop) {
+        const [kw, t] = String(prop.proposed).split(" ") as ["start" | "end", string];
+        if (dry) reply = `(dry) ${prop.name} ${kw} ${t}`;
+        else {
+          if (!jar) { jar = {}; if (!(await login(jar))) jar = null; }
+          reply = jar ? await applySeg(jar, { row: prop, times: [t], kw }).catch((e) => `❌ ${prop.name} – ${String(e).slice(0, 100)}`) : "❌ לא הצלחתי להתחבר לשיפט. לא שיניתי כלום.";
+        }
+        results.push({ msg: m.idMessage, text, reply });
+        if (!dry) { await send(target, reply, m.idMessage); await sb.from("shift_clock_replies").update({ result: { reply } }).eq("msg_id", m.idMessage); }
+        continue;
+      }
+      const { segs, problems } = parse(text, qrows.sort((a, b) => a.line - b.line));
       const lines: string[] = [...problems.map((p) => `❌ ${p}`)];
-      if (!segs.length && !problems.length) lines.push("לא מצאתי שעה בתשובה. דוגמה: 19:30 · 2 19:30 · אופל 19:15-01:55 · כניסה 19:15");
+      if (!segs.length && !problems.length) lines.push(CONFIRM_RE.test(text) ? "אין כאן שעה לאשר — להשיב עם השעה עצמה (למשל 02:10)." : "לא מצאתי שעה בתשובה. דוגמה: 19:30 · 2 19:30 · אופל 19:15-01:55 · כניסה 19:15");
       if (segs.length && dry) lines.push(...segs.map((s) => `(dry) ${s.row.name} ${s.row.kind} ${s.times.join("-")} ${s.kw ?? ""}`));
       else if (segs.length) {
         if (!jar) { jar = {}; if (!(await login(jar))) { jar = null; lines.push("❌ לא הצלחתי להתחבר לשיפט. לא שיניתי כלום."); } }
@@ -866,7 +881,7 @@ async function dmOne(jar: Record<string, string>, ph: string, text: string, dry:
       if ((en - st) / 36e5 > DM_MAX_H) warn = `יוצא משמרת של ${((en - st) / 36e5).toFixed(1)} ש'`;
       else if (ps && pe && en - endAt(a.date, ps, pe) > DM_LATE_MIN * 6e4) warn = `${((en - endAt(a.date, ps, pe)) / 36e5).toFixed(1)} ש' אחרי סוף המשמרת המתוכנן (${hm(pe)})`;
     } else if (kw === "start" && ce && (endAt(a.date, t, ce) - at(a.date, t)) / 36e5 > DM_MAX_H) warn = `יוצא משמרת של יותר מ-${DM_MAX_H} ש'`;
-    if (warn) return { msg: `⚠️ *${a.name}* שלח/ה ${label} ${t} (${ddmm(a.date)}) — ${warn}. לא עדכנתי.\n↩️ להשיב כאן עם השעה הנכונה ואעדכן.`, row };
+    if (warn) return { msg: `⚠️ *${a.name}* שלח/ה ${label} ${t} (${ddmm(a.date)}) — ${warn}. לא עדכנתי.\n↩️ להשיב כאן *נכון* לאישור ${t}, או עם השעה הנכונה ואעדכן.`, row: { ...row, proposed: `${kw} ${t}` } };
     if (dry) return { msg: `(dry) ${a.name} ${ddmm(a.date)} ${label} ${t}`, row };
     const res = await applySeg(jar, { row, times: [t], kw });
     return { msg: `📲 *${a.name}* שלח/ה ${label} ${t}\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`, row };
