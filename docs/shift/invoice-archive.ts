@@ -61,6 +61,47 @@ async function sweep(dry: boolean) {
   return { checked: (rows ?? []).length, results: out };
 }
 
+// 20/10: העתקה ל-Google Drive — Apps Script בחשבון של ירין (docs/shift/invoice-drive.gs) מקבל את הקובץ ושומר
+// ב"חשבוניות פסאו/<ספק>/<YYYY-MM>/". Drive for Desktop מסנכרן למחשב. מעקב ב-invoice_drive_sync (עד 5 ניסיונות).
+// app_config: INVOICE_DRIVE_URL (כתובת ה-Web App) + INVOICE_DRIVE_SECRET. בלי URL — מדלגים.
+const DRIVE_PER_RUN = 5, DRIVE_MAX_TRIES = 5;
+const b64 = (b: Uint8Array) => { let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); };
+async function driveSync() {
+  const url = await cfg("INVOICE_DRIVE_URL"), key = await cfg("INVOICE_DRIVE_SECRET");
+  if (!url || !key) return { drive: "not configured" };
+  const { data: rows } = await sb.from("wa_invoice_intake").select("id, supplier_id, invoice_ref, invoice_date, created_at, storage_path")
+    .eq("source_chat_id", PASEO_GROUP).not("storage_path", "is", null).not("storage_path", "like", "!%")
+    .order("created_at", { ascending: true }).limit(1000);
+  const { data: st } = await sb.from("invoice_drive_sync").select("intake_id, status, attempts");
+  const seen = new Map((st ?? []).map((s: any) => [s.intake_id, s]));
+  const todo = (rows ?? []).filter((r: any) => { const s: any = seen.get(r.id); return !s || (s.status !== "done" && s.attempts < DRIVE_MAX_TRIES); }).slice(0, DRIVE_PER_RUN);
+  if (!todo.length) return { drive: 0 };
+  const names = await supplierNames();
+  const out: any[] = [];
+  for (const r of todo) {
+    const prev: any = seen.get(r.id);
+    const mark = (o: Record<string, unknown>) => sb.from("invoice_drive_sync").upsert({ intake_id: r.id, attempts: (prev?.attempts ?? 0) + 1, updated_at: new Date().toISOString(), ...o });
+    try {
+      const dl = await sb.storage.from(BUCKET).download(r.storage_path);
+      if (dl.error || !dl.data) throw new Error(`storage: ${dl.error?.message ?? "empty"}`);
+      const ext = String(r.storage_path).split(".").pop();
+      const day = dayOf(r);
+      const body = { secret: key, supplier: fname(r.supplier_id ? (names.get(r.supplier_id) ?? r.supplier_id) : "לא מזוהה"), month: day.slice(0, 7),
+        name: `${day}_${fname(String(r.invoice_ref ?? "ללא מספר"))}_${String(r.id).slice(0, 4)}.${ext}`,
+        mime: dl.data.type || "application/octet-stream", data: b64(new Uint8Array(await dl.data.arrayBuffer())) };
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await res.json().catch(() => null);
+      if (!j?.ok) throw new Error(`drive: ${res.status} ${String(j?.error ?? "").slice(0, 120)}`);
+      await mark({ status: "done", file_id: j.id, error: null });
+      out.push({ id: r.id, file: j.id, dup: !!j.dup });
+    } catch (e) {
+      await mark({ status: "error", error: String(e).slice(0, 300) });
+      out.push({ id: r.id, err: String(e).slice(0, 120) });
+    }
+  }
+  return { drive: out };
+}
+
 async function supplierNames(): Promise<Map<string, string>> {
   const { data } = await sb.from("suppliers").select("id, name");
   return new Map((data ?? []).map((s: any) => [String(s.id), String(s.name ?? s.id)]));
@@ -126,7 +167,11 @@ Deno.serve(async (req) => {
   const secret = await cfg("ALFRED_SYNC_SECRET");
   if (!secret || (req.headers.get("x-sync-secret") ?? u.searchParams.get("secret")) !== secret) return new Response("unauthorized", { status: 401 });
   const mode = u.searchParams.get("mode") ?? "sweep";
-  if (mode === "sweep") return json(await sweep(u.searchParams.get("dry") === "1"));
+  if (mode === "sweep") {
+    const dry = u.searchParams.get("dry") === "1";
+    const s = await sweep(dry);
+    return json(dry ? s : { ...s, ...(await driveSync()) });
+  }
   if (mode === "list") return json(await list());
   if (mode === "zip") {
     const r: any = await zip((u.searchParams.get("supplier") ?? "all").trim(), u.searchParams.get("from"), u.searchParams.get("to"));
