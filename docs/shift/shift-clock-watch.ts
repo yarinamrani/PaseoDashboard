@@ -723,6 +723,9 @@ async function earlyIn(jar: Record<string, string>, ids: Set<number>, homes: { i
   const rc = ilClock(recvMs), t = given ?? rc.t, diff = mins(rc.t) - mins(t);
   if (diff < -EARLY_AHEAD_MIN || diff > EARLY_BACK_H * 60)
     return asked ? { msg: `⚠️ *${who}* שלח/ה לבוט כניסה ${t} בשעה ${rc.t} — רחוק מדי משעת השליחה. לא עדכנתי.`, row: null } : none;
+  // 20/10: שעה לפני 06:00 בלי "נכנסתי"/IN היא סוף לילה, לא כניסה — אם לא נמצאה משמרת פתוחה ליציאה, לא מנחשים
+  if (!asked && mins(t) < EARLY_FROM_H * 60)
+    return { msg: `⚠️ *${who}* שלח/ה לבוט ${quote} ב-${rc.t} — לא מצאתי משמרת פתוחה שזה מסתדר כיציאה שלה. לא עדכנתי.`, row: null };
   const cands: any[] = [];
   for (const app of Object.keys(APPS).map(Number))
     for (const c of await appCells(jar, app)) if (String(c.date).slice(0, 10) === rc.date && !c.is_deleted && ids.has(Number(c.employee))) cands.push({ ...c, app });
@@ -847,6 +850,31 @@ async function processEarly(jar: Record<string, string>, cells: Cell[], dates: s
     if (id) await sb.from("shift_clock_msgs").insert([{ ...row, msg_id: id }]);
   }
 }
+async function openExit(jar: Record<string, string>, ids: Set<number>, who: string, t: string, recvMs: number, dry: boolean): Promise<{ msg: string; row: Row | null } | null> {
+  const rc = ilClock(recvMs), recv = at(rc.date, rc.t);
+  const days = [ymd(Date.parse(`${rc.date}T00:00:00Z`) - 864e5), rc.date];
+  const cands: any[] = [];
+  for (const app of Object.keys(APPS).map(Number))
+    for (const c of await appCells(jar, app)) {
+      const d = String(c.date).slice(0, 10);
+      if (days.includes(d) && !c.is_deleted && ids.has(Number(c.employee))) cands.push({ ...c, app, d });
+    }
+  const open = cands.filter((c) => (c.manual_start || c.clock_start) && !c.manual_end && !c.clock_end)
+    .map((c) => { const st = c.manual_start || c.clock_start, s0 = at(c.d, st); return { c, st, s0, e: endAt(c.d, st, t) }; })
+    .filter((x) => x.e - x.s0 >= 30 * 6e4 && x.e - x.s0 <= DM_MAX_H * 36e5 && x.e <= recv + EARLY_AHEAD_MIN * 6e4 && recv - x.e <= EARLY_BACK_H * 36e5)
+    .sort((a, b) => b.s0 - a.s0)[0];
+  if (!open) return null;
+  const { c, st, e } = open, name = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || who;
+  // כפולה (תא מאוחר יותר באותו יום בלי החתמה) — היציאה שייכת לתא הערב, לא מנחשים
+  if (cands.some((x) => x.d === c.d && x.app === c.app && x.id !== c.id && !x.manual_start && !x.clock_start && dayKey(x.planned_start ?? null) > dayKey(st)))
+    return { msg: `⚠️ *${name}* שלח/ה לבוט ${t} — נראה כמו יציאה, אבל יש לו/ה כפולה ב-${ddmm(c.d)}. לא עדכנתי — לעדכן ידנית.`, row: null };
+  const row: Row = { msg_id: "", line: 1, cell_id: c.id, app: c.app, kind: "no_exit", partner_id: null, name, date: c.d };
+  if (c.planned_start && c.planned_end && e - endAt(c.d, c.planned_start, c.planned_end) > DM_LATE_MIN * 6e4)
+    return { msg: `⚠️ *${name}* שלח/ה ${t} — נראה כמו יציאה מהמשמרת של ${ddmm(c.d)} (כניסה ${hm(st)}), אבל ${((e - endAt(c.d, c.planned_start, c.planned_end)) / 36e5).toFixed(1)} ש' אחרי סוף המתוכנן (${hm(c.planned_end)}). לא עדכנתי.\n↩️ להשיב כאן *נכון* לאישור ${t}, או עם השעה הנכונה ואעדכן.`, row: { ...row, proposed: `end ${t}` } };
+  if (dry) return { msg: `(dry) exit ${name} ${ddmm(c.d)} יציאה ${t} → cell ${c.id}`, row };
+  const res = await applySeg(jar, { row, times: [t], kw: "end" });
+  return { msg: `📲 *${name}* שלח/ה ${t} — זוהה כ*יציאה* מהמשמרת של ${ddmm(c.d)} (כניסה ${hm(st)})\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`, row };
+}
 async function dmOne(jar: Record<string, string>, ph: string, text: string, dry: boolean, recvMs = Date.now()): Promise<{ msg: string; row: Row | null }> {
   const { data: emps } = await sb.from("shift_employees").select("id, full_name, phone, application");
   const mine = (emps ?? []).filter((e: any) => String(e.phone ?? "").replace(/\D/g, "").slice(-9) === ph)
@@ -887,6 +915,12 @@ async function dmOne(jar: Record<string, string>, ph: string, text: string, dry:
     return { msg: `📲 *${a.name}* שלח/ה ${label} ${t}\n${res}\n↩️ אם לא נכון — להשיב כאן עם השעה הנכונה.`, row };
   }
   if (fixedNote) return { msg: `ℹ️ *${who}* שלח/ה לבוט ${times[0] ?? quote} — כבר מעודכן בשיפט (${fixedNote}, תוקן ידנית). לא שיניתי.`, row: null };
+  // 20/10: אין התראה פתוחה — מסנכרנים מול מה שחסר לעובד בשיפט. משמרת עם כניסה ובלי יציאה שהשעה מסתדרת כסוף שלה → יציאה.
+  // (JNATHAN שלח "2:25 am" ב-02:25 אחרי הסגירה, לפני שיצאה התראה, ונרשמה לו כניסה 02:25 בתא של היום.)
+  if (!isIn && !RE_START.test(text)) {
+    const ex = await openExit(jar, ids, who, times[0], recvMs, dry);
+    if (ex) return ex;
+  }
   const homes = mine.filter((e: any) => APPS[e.application]).map((e: any) => ({ id: Number(e.id), app: Number(e.application) }));
   return await earlyIn(jar, ids, homes, who, text, times[0] ?? null, recvMs, dry);
 }
