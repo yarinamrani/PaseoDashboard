@@ -104,6 +104,13 @@ reviews the Chrome session's reports, and the owner pastes between them.
   "כוסות למגנום" (ללא כוסות, 1כ–12כ; magnum only), "כוסות לקנקן". Options are free-text
   names, not catalog items. Total groups ≈ 91–92 (recount if it matters).
 - Last broadcast before the wine launch: ~2026-11-06.
+- **TALA (Thai, kosher) kitchen** is separate from Paseo's kitchen. Thai dishes and sushi rolls
+  are prepared there; Thai items must print to the same print locations as the sushi rolls
+  (dragon roll: PASEO SUSHI + סושי פסאו) – never פס חם / פס קר / צ'קר. Confirm with a test order.
+- Menu ראשי ‹ "תאילנדי + סושי" (was "סופש ארוך של סושי"): תפריט סושי (14 rolls), תפריט תאילנדי.
+  Catalog branch אוכל ‹ תאילנדי. Print locations list (18): PASEO SUSHI, Umino Starts, Umino cocktails,
+  umino desserts, בירות, בר מרכזי, ללא הדפסה, מלצרים אחורית, משלוחים, סושי פסאו, ספיישלים, פס חם,
+  פס קר, צ'קר, קופה פנימית, קופה ראשית, קוקטיילים, שתיה קלה.
 
 ## Wine changeover (when an old wine's stock ends)
 1. Remove the old wine's placement (don't delete the item – keeps report history).
