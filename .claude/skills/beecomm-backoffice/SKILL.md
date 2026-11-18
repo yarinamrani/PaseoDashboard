@@ -49,6 +49,7 @@ reviews the Chrome session's reports, and the owner pastes between them.
 | Menu: trash icon on a placement | Pending until "שמור שינויים". |
 | Menu: delete sub-category (trash) | App confirm "מחיקת תת קטגוריה…" → immediate. Only delete when empty. |
 | Modifier group save / attach group to item + save | Immediately. |
+| Modifier option **price** | Only possible when the option is a **catalog item** (price field per row). Free-text options have no editable price ("מ.בסיס" and "+ הוסף תמחור" columns stay empty/locked). Paid add-ons ⇒ create add-on items in the catalog first, then link them. |
 | Menu category has no "inactive" state | Only "פעיל לפי תזמון". To hide items: don't place them, or untick "פריט פעיל". |
 
 ## Known pitfalls
